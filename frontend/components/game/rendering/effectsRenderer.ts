@@ -2,6 +2,7 @@ import { Container, Graphics, GraphicsContext } from "pixi.js";
 import type { SpellData } from "../../../types/game";
 import { isSelfFirstSupportSpell } from "../input/combatTargeting";
 import { destroyDisplayObjectSafely } from "./pixiUtils";
+import type { FXManager } from "./fx/FXManager";
 
 const SPELL_PROJECTILE_CORE_RADIUS = 5;
 const SPELL_PROJECTILE_RING_RADIUS = 9;
@@ -146,7 +147,7 @@ function clampSpellProjectileMagnitude(
     return Math.max(0.65, Math.min(2.5, Number(value)));
 }
 
-function getSpellProjectileVisualConfig(
+export function getSpellProjectileVisualConfig(
     spellData: SpellData | null | undefined,
 ): SpellProjectileVisualConfig {
     if (isSelfFirstSupportSpell(spellData)) {
@@ -399,6 +400,142 @@ export function createSpellProjectileVisual(
                 releaseSpellProjectileParticle(particle.sprite);
             }
             particles.length = 0;
+        },
+    };
+}
+
+/**
+ * Variante GPU del visual de proyectil de hechizo.
+ *
+ * Misma firma que `createSpellProjectileVisual`, pero el trail de partículas
+ * lo emite el `FXManager` (ParticleContainer + blend ADD, pooling global) en
+ * vez de crear un `Graphics` por partícula. Al llegar (cleanup) deja un
+ * destello + burst con los colores del hechizo.
+ *
+ * Si `getFXManager()` devuelve null, el llamador debe usar la variante legacy.
+ */
+export function createSpellProjectileVisualFX(
+    getFXManager: () => FXManager | null,
+    rotation: number,
+    spellData: SpellData | null | undefined,
+): {
+    container: Container;
+    updateVisual: (progress: number, worldX: number, worldY: number) => void;
+    cleanupVisual: () => void;
+} {
+    const visualConfig = getSpellProjectileVisualConfig(spellData);
+    const container = new Container();
+    const coreRadius = SPELL_PROJECTILE_CORE_RADIUS * visualConfig.magnitude;
+    const ringRadius = SPELL_PROJECTILE_RING_RADIUS * visualConfig.magnitude;
+    const trailRadius = Math.max(
+        2,
+        SPELL_PROJECTILE_TRAIL_RADIUS * (0.8 + visualConfig.magnitude * 0.45),
+    );
+
+    const core = new Graphics();
+    core.circle(0, 0, coreRadius).fill({
+        color: visualConfig.coreColor,
+        alpha: SPELL_PROJECTILE_ALPHA_CORE,
+    });
+
+    const ring = new Graphics();
+    ring.circle(0, 0, ringRadius).stroke({
+        color: visualConfig.ringColor,
+        alpha: SPELL_PROJECTILE_ALPHA_RING,
+        width: Math.max(2, visualConfig.magnitude * 1.8),
+    });
+
+    const trail = new Graphics();
+    trail.circle(-10 * visualConfig.magnitude, 0, trailRadius).fill({
+        color: visualConfig.trailColor,
+        alpha: SPELL_PROJECTILE_ALPHA_TRAIL,
+    });
+
+    container.addChild(trail, ring, core);
+    container.rotation = rotation;
+    container.alpha = SPELL_PROJECTILE_ALPHA_CONTAINER;
+
+    const travelDirectionX = Math.cos(rotation);
+    const travelDirectionY = Math.sin(rotation);
+    const particleIntervalMs = Math.max(
+        6,
+        SPELL_PROJECTILE_PARTICLE_INTERVAL_MS /
+            (0.8 + visualConfig.magnitude * 0.55),
+    );
+    let lastParticleEmissionAt = -Infinity;
+    let lastWorldX = 0;
+    let lastWorldY = 0;
+    let hasPosition = false;
+
+    return {
+        container,
+        updateVisual: (progress: number, worldX: number, worldY: number) => {
+            const now = performance.now();
+            lastWorldX = worldX;
+            lastWorldY = worldY;
+            hasPosition = true;
+
+            const manager = getFXManager();
+            if (
+                manager &&
+                now - lastParticleEmissionAt >= particleIntervalMs
+            ) {
+                lastParticleEmissionAt = now;
+                manager.trailTick(
+                    worldX,
+                    worldY,
+                    travelDirectionX,
+                    travelDirectionY,
+                    visualConfig.trailColor,
+                    visualConfig.ringColor,
+                    visualConfig.magnitude,
+                );
+            }
+
+            const pulse = 0.92 + Math.sin(progress * Math.PI * 6) * 0.08;
+            core.scale.set(pulse);
+            ring.scale.set(0.9 + progress * 0.45);
+            ring.alpha =
+                SPELL_PROJECTILE_ALPHA_RING *
+                (1 -
+                    progress *
+                        (1 - SPELL_PROJECTILE_ALPHA_RING_END_MULTIPLIER));
+            trail.alpha =
+                SPELL_PROJECTILE_ALPHA_TRAIL *
+                (1 -
+                    progress *
+                        (1 - SPELL_PROJECTILE_ALPHA_TRAIL_END_MULTIPLIER));
+            container.alpha =
+                SPELL_PROJECTILE_ALPHA_CONTAINER *
+                (1 -
+                    progress *
+                        (1 - SPELL_PROJECTILE_ALPHA_CONTAINER_END_MULTIPLIER));
+        },
+        cleanupVisual: () => {
+            // Impacto de llegada con los colores del hechizo.
+            if (!hasPosition) {
+                return;
+            }
+            const manager = getFXManager();
+            if (!manager) {
+                return;
+            }
+            manager.flash(
+                lastWorldX,
+                lastWorldY,
+                visualConfig.coreColor,
+                44 * visualConfig.magnitude,
+            );
+            manager.burst(
+                "impact-physical",
+                lastWorldX,
+                lastWorldY,
+                0.7,
+                {
+                    start: visualConfig.coreColor,
+                    end: visualConfig.trailColor,
+                },
+            );
         },
     };
 }

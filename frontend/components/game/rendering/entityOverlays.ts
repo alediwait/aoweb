@@ -3,6 +3,7 @@ import type { SpellData } from "../../../types/game";
 import { TILE_SIZE } from "../../../lib/viewport";
 import type { Engine } from "../engine/Engine";
 import { createSpellProjectileVisual } from "./effectsRenderer";
+import { createSpellProjectileVisualFX } from "./effectsRenderer";
 import {
     getDialogLabelPosition,
     type BodyRenderMetrics,
@@ -554,16 +555,28 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
             endWorldY - startWorldY,
             endWorldX - startWorldX,
         );
-        const { container, updateVisual, cleanupVisual } =
-            createSpellProjectileVisual(
-                (worldY) =>
-                    getEntityFXRowContainer(
-                        engine,
-                        Math.floor(worldY / TILE_SIZE) + 1,
-                    ) ?? overlay,
-                rotation,
-                spellData,
-            );
+        // Vía GPU (ParticleContainer) cuando el FXManager está disponible;
+        // si no, fallback legacy de Graphics por partícula.
+        const fxManager =
+            typeof engine.ensureFXManager === "function"
+                ? engine.ensureFXManager()
+                : null;
+        const useParticleTrail = fxManager !== null;
+        const { container, updateVisual, cleanupVisual } = useParticleTrail
+            ? createSpellProjectileVisualFX(
+                  () => engine.fxManager,
+                  rotation,
+                  spellData,
+              )
+            : createSpellProjectileVisual(
+                  (worldY) =>
+                      getEntityFXRowContainer(
+                          engine,
+                          Math.floor(worldY / TILE_SIZE) + 1,
+                      ) ?? overlay,
+                  rotation,
+                  spellData,
+              );
 
         container.x = Math.round(startWorldX);
         container.y = Math.round(startWorldY);
@@ -596,6 +609,82 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
             cleanupVisual,
         });
     };
+
+    /**
+     * Helpers de alto nivel sobre el FXManager (partículas GPU).
+     * Pensados para el futuro: fuego por tile/objeto, impactos, auras.
+     * No-ops seguros si el FXManager aún no existe.
+     */
+    const renderImpactBurstAtWorld = (
+        engine: Engine,
+        worldX: number,
+        worldY: number,
+        presetId = "impact-physical",
+    ): void => {
+        if (engine.isDestroyed) {
+            return;
+        }
+        const manager =
+            engine.fxManager ??
+            (typeof engine.ensureFXManager === "function"
+                ? engine.ensureFXManager()
+                : null);
+        if (!manager) {
+            return;
+        }
+        manager.flash(worldX, worldY, 0xfff2c0, 44);
+        manager.burst(presetId, worldX, worldY);
+    };
+
+    const renderImpactBurstAtTile = (
+        engine: Engine,
+        tilePos: { x: number; y: number },
+        presetId = "impact-physical",
+    ): void => {
+        renderImpactBurstAtWorld(
+            engine,
+            (tilePos.x - 1) * TILE_SIZE + TILE_SIZE / 2,
+            (tilePos.y - 1) * TILE_SIZE + TILE_SIZE / 2,
+            presetId,
+        );
+    };
+
+    /**
+     * Fuego loopeado anclado a una posición dinámica (tile, objeto, entidad).
+     * Devuelve handle (>0) para `killParticleLoop`. Ej: antorchas, fogatas.
+     */
+    const renderFireLoop = (
+        engine: Engine,
+        getPos: () => { x: number; y: number } | null,
+        presetIds: string[] = ["torch-flame", "torch-smoke", "torch-embers"],
+        opts?: { durationMs?: number; scale?: number },
+    ): number[] => {
+        if (engine.isDestroyed) {
+            return [];
+        }
+        const manager =
+            engine.fxManager ??
+            (typeof engine.ensureFXManager === "function"
+                ? engine.ensureFXManager()
+                : null);
+        if (!manager) {
+            return [];
+        }
+        const handles: number[] = [];
+        for (const presetId of presetIds) {
+            const handle = manager.loop(presetId, getPos, opts);
+            if (handle > 0) {
+                handles.push(handle);
+            }
+        }
+        return handles;
+    };
+
+    const killParticleLoop = (engine: Engine, handle: number): void => {
+        engine.fxManager?.kill(handle);
+    };
+
+    const getParticleStats = (engine: Engine) => engine.fxManager?.getStats() ?? null;
 
     const positionDialogBubble = (
         engine: Engine,
@@ -806,10 +895,15 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         clearAllCastBars,
         clearAllDialogMessages,
         clearEntityFX,
+        getParticleStats,
+        killParticleLoop,
         removeCastBarFromOverlay,
         removeDialogBubbleFromContainer,
         removeDialogBubbleFromOverlay,
         renderEntityFX,
+        renderFireLoop,
+        renderImpactBurstAtTile,
+        renderImpactBurstAtWorld,
         renderProjectileVisual,
         renderSpellProjectileVisual,
         showDialogBubble,

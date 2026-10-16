@@ -85,6 +85,13 @@ import {
     syncCharacterContainerToRenderRow,
     syncDisplayObjectToEntityFXRow,
 } from "../rendering/rowLayerContainers";
+import { FXManager } from "../rendering/fx/FXManager";
+import {
+    detectFXQuality,
+    stepQualityDown,
+    stepQualityUp,
+    type FXQualityLevel,
+} from "../config/fxQuality";
 
 const TREE_FADE_ALPHA = 0.25;
 const WATER_ANIMATION_SPEED_MULTIPLIER = 10;
@@ -612,6 +619,15 @@ export class Engine {
     entityEffectExpiresAt: Map<number, number> = new Map();
     projectileVisuals: Map<number, ActiveProjectileVisual> = new Map();
     nextProjectileVisualId = 1;
+    // Sistema de partículas custom (PixiJS 8 ParticleContainer). Lazy: se
+    // crea en ensureFXManager() cuando app + overlay están listos.
+    fxManager: FXManager | null = null;
+    fxQuality: FXQualityLevel = "alto";
+    private fxQualityInitialized = false;
+    private fxFpsEma = 60;
+    private fxLastQualityCheckAt = 0;
+    private fxUpscaleStreak = 0;
+    private fxStressDone = false;
     dialogBubbleTicker?: () => void;
     fpsTicker?: () => void;
     movementCheckTimeoutId: number | null = null;
@@ -2052,6 +2068,7 @@ export class Engine {
         this.updateAnimatedMapSprites();
         this.updateCharacterAnimations();
         this.updateProjectileVisuals();
+        this.updateFX();
         this.updatePlayerSprite();
         this.updateRoofVisibility();
         this.updateTreeTransparency();
@@ -2186,6 +2203,88 @@ export class Engine {
 
                 destroyDisplayObjectSafely(projectile.sprite);
                 this.projectileVisuals.delete(projectileId);
+            }
+        }
+    }
+
+    /**
+     * Crea el FXManager bajo demanda (una vez que app + overlay existen).
+     * Devuelve null si el motor aún no está listo.
+     */
+    ensureFXManager(): FXManager | null {
+        if (this.fxManager) {
+            return this.fxManager;
+        }
+        if (!this.app || !this.entityFXOverlayContainer || this.isDestroyed) {
+            return null;
+        }
+        if (!this.fxQualityInitialized) {
+            this.fxQuality = detectFXQuality();
+            this.fxQualityInitialized = true;
+        }
+        const manager = new FXManager(this.app, this.entityFXOverlayContainer);
+        if (!manager.ready) {
+            manager.dispose();
+            return null;
+        }
+        manager.setQuality(this.fxQuality);
+        this.fxManager = manager;
+        if (typeof window !== "undefined") {
+            (window as any).__aowebFX = manager;
+        }
+        return manager;
+    }
+
+    /** Tick del sistema de partículas + auto-calidad por FPS (ventana 2s). */
+    updateFX(): void {
+        const manager = this.ensureFXManager();
+        if (!manager) {
+            return;
+        }
+        const deltaMs = this.delta;
+        const instantFps = 1000 / Math.max(1, deltaMs);
+        const alpha = 0.06;
+        this.fxFpsEma += (instantFps - this.fxFpsEma) * alpha;
+
+        const now = performance.now();
+        if (now - this.fxLastQualityCheckAt >= 2000) {
+            this.fxLastQualityCheckAt = now;
+            if (this.fxFpsEma < 45) {
+                const lower = stepQualityDown(this.fxQuality);
+                if (lower !== this.fxQuality) {
+                    this.fxQuality = lower;
+                    manager.setQuality(lower);
+                }
+                this.fxUpscaleStreak = 0;
+            } else if (this.fxFpsEma > 57) {
+                this.fxUpscaleStreak += 1;
+                if (this.fxUpscaleStreak >= 5) {
+                    const higher = stepQualityUp(this.fxQuality);
+                    if (higher !== this.fxQuality) {
+                        this.fxQuality = higher;
+                        manager.setQuality(higher);
+                    }
+                    this.fxUpscaleStreak = 0;
+                }
+            } else {
+                this.fxUpscaleStreak = 0;
+            }
+        }
+
+        manager.update(deltaMs);
+
+        // Stress test manual: ?fxStress=800 (una sola vez, en el jugador).
+        if (!this.fxStressDone && typeof window !== "undefined" && this.user) {
+            const match = /[?&]fxStress=(\d+)/.exec(window.location.search);
+            if (match) {
+                this.fxStressDone = true;
+                const count = Math.max(
+                    1,
+                    Math.min(3000, Number.parseInt(match[1], 10) || 0),
+                );
+                const worldX = (this.user.pos.x - 1) * TILE_SIZE + TILE_SIZE / 2;
+                const worldY = (this.user.pos.y - 1) * TILE_SIZE + TILE_SIZE / 2;
+                manager.stressAt(worldX, worldY, count);
             }
         }
     }
@@ -2982,6 +3081,20 @@ export class Engine {
             destroyDisplayObjectSafely(projectile.sprite);
         }
         this.projectileVisuals.clear();
+
+        if (this.fxManager) {
+            this.fxManager.dispose();
+            this.fxManager = null;
+        }
+        if (typeof window !== "undefined") {
+            try {
+                if ((window as any).__aowebFX instanceof FXManager) {
+                    delete (window as any).__aowebFX;
+                }
+            } catch {
+                // Ignorar.
+            }
+        }
 
         const app = this.app;
         this.app = null;
