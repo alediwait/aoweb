@@ -99,6 +99,26 @@ export type IncomingPacketHandlerContext = {
     showDialogBubble: (id: number, msg: string, color?: string) => void;
     showCritText: (engine: any, entityId: number, text: string) => void;
     playLevelUpAt: (engine: any, entityId: number) => boolean;
+    playSpellImpact: (
+        engine: any,
+        entityId: number,
+        spell: {
+            spellId?: number | null;
+            name?: string | null;
+            desc?: string | null;
+            manaRequired?: number | null;
+            minHp?: number | null;
+            maxHp?: number | null;
+            subeHp?: number | null;
+            paraliza?: number | null;
+            inmoviliza?: number | null;
+            invisibilidad?: number | null;
+            revivir?: number | null;
+            removerParalisis?: number | null;
+            subeAg?: number | null;
+            subeFz?: number | null;
+        },
+    ) => { played: boolean; shake: number };
     renderImpactBurstAtWorld: (
         engine: any,
         worldX: number,

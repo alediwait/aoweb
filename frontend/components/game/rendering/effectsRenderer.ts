@@ -512,7 +512,8 @@ export function createSpellProjectileVisualFX(
                         (1 - SPELL_PROJECTILE_ALPHA_CONTAINER_END_MULTIPLIER));
         },
         cleanupVisual: () => {
-            // Impacto de llegada con los colores del hechizo.
+            // Impacto de llegada con los colores del hechizo + chispa extra
+            // según arquetipo (fuego → humo/llama, eléctrico → rayos).
             if (!hasPosition) {
                 return;
             }
@@ -520,22 +521,38 @@ export function createSpellProjectileVisualFX(
             if (!manager) {
                 return;
             }
+            const haystack = `${spellData?.name ?? ""} ${spellData?.desc ?? ""}`;
+            const isElectric = /eléctr|rayo|relámp|tormenta|descarga/i.test(haystack);
+            const isFire =
+                /fuego|llama|apocal|ira de dios|infiern|elemental de fuego/i.test(
+                    haystack,
+                );
             manager.flash(
                 lastWorldX,
                 lastWorldY,
                 visualConfig.coreColor,
                 44 * visualConfig.magnitude,
             );
-            manager.burst(
-                "impact-physical",
-                lastWorldX,
-                lastWorldY,
-                0.7,
-                {
+            manager.burst("impact-physical", lastWorldX, lastWorldY, 0.7, {
+                start: visualConfig.coreColor,
+                end: visualConfig.trailColor,
+            });
+            if (isFire) {
+                manager.burst("impact-fire", lastWorldX, lastWorldY, 0.5, {
                     start: visualConfig.coreColor,
                     end: visualConfig.trailColor,
-                },
-            );
+                });
+            }
+            if (isElectric) {
+                manager.boltStrike(lastWorldX, lastWorldY, 0xbfe0ff);
+                if (visualConfig.magnitude >= 1.4) {
+                    manager.boltStrike(
+                        lastWorldX + (Math.random() - 0.5) * 50,
+                        lastWorldY,
+                        0xbfe0ff,
+                    );
+                }
+            }
         },
     };
 }

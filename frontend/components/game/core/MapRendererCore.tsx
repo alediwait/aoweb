@@ -1648,6 +1648,12 @@ export default function MapRenderer({
         [entityOverlays],
     );
 
+    const playSpellImpact = React.useCallback(
+        (engine: Engine, entityId: number, spell: any) =>
+            entityOverlays.playSpellImpact(engine, entityId, spell),
+        [entityOverlays],
+    );
+
     const renderImpactBurstAtWorld = React.useCallback(
         (
             engine: Engine,
@@ -1889,6 +1895,7 @@ export default function MapRenderer({
                 showDialogBubble,
                 showCritText,
                 playLevelUpAt,
+                playSpellImpact,
                 renderImpactBurstAtWorld,
                 onGlobalNotice,
                 renderEntityFX,
@@ -1943,6 +1950,7 @@ export default function MapRenderer({
         setIsSceneReady,
         showCritText,
         playLevelUpAt,
+        playSpellImpact,
         renderImpactBurstAtWorld,
         showDialogBubble,
         startMapChangeTransition,

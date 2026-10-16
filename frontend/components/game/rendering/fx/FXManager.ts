@@ -371,8 +371,10 @@ export class FXManager {
         x: number,
         y: number,
         countScale = 1,
-    /** Tinte override para reutilizar presets con colores de hechizo. */
-    colors?: { start: number; end: number },
+        /** Tinte override para reutilizar presets con colores de hechizo. */
+        colors?: { start: number; end: number },
+        /** Escala de tamaño de partícula (espectacularidad por maná). */
+        sizeScale = 1,
     ): void {
         const resolved = this.resolveConfig(config);
         if (!resolved || !this.ready || !this.pools) {
@@ -392,7 +394,7 @@ export class FXManager {
         count = Math.max(count > 0 ? 1 : 0, count);
         const pool = pickPool(this.pools, effective.pool);
         for (let i = 0; i < count; i += 1) {
-            this.spawnOne(pool, effective, x, y, 1);
+            this.spawnOne(pool, effective, x, y, sizeScale);
         }
         // Los impactos de fuego llevan su humo.
         if (effective.id === "impact-fire") {

@@ -33,7 +33,16 @@
 > `prefers-reduced-motion` + `localStorage aoweb-screen-shake`), y rayo
 > divino `divine-ray` + burst `levelup` al detectar flanco ascendente en
 > `actMyLevel` (sin zoom: escalar el stage rompería el hit-test de clicks).
-> Pendiente de Fase 1:
+> **Hechizos 100% partículas (16-oct-2026):** tabla explícita de los 47
+> hechizos (`rendering/fx/spellFx.ts`: arquetipo + paleta + rayos + shake,
+> espectacularidad = f(maná), tope en daño ≥1000; utilitarios sin shake).
+> El servidor agrega `spellId` al `spellVisual` de impacto (bit 1<<4 aditivo,
+> ignorado por clientes viejos) porque varios `fxGrh` colisionan (fx7 ×7
+> hechizos, fx3 Toxina/Ojo, fx14 melee). El cliente compone bursts + flash
+> + `boltStrike` + `divineRay` sobre el ancla y suprime el sprite legacy solo
+> cuando el hechizo es conocido; el burst de llegada del proyectil también
+> se tiñe por arquetipo (fuego/hielo/rayo). Impactos de NPCs siguen legacy
+> (pendiente: rutearlos por `spellVisual`+`spellId`). Pendiente de Fase 1:
 > cablear antorchas/fogatas del mapa a `renderFireLoop` y QA de FPS en
 > dispositivo real.
 

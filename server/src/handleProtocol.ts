@@ -894,6 +894,10 @@ const handleServer: HandleProtocolApi = {
         const hasFx = Number(payload.fxGrh ?? 0) > 0;
         const hasSound = Number(payload.soundId ?? 0) > 0;
         const hasWords = String(payload.msg ?? "").trim().length > 0 && typeof payload.casterId !== "undefined";
+        // spellId sin proyectil (impactos/buffs): el cliente resuelve el
+        // efecto de partículas por hechizo. Bit aditivo, ignorado por
+        // clientes viejos (frames con longitud explícita).
+        const hasSpellIdOnly = !hasProjectile && Number(payload.spellId ?? 0) > 0;
 
         if (hasProjectile) {
             flags |= 1;
@@ -909,6 +913,10 @@ const handleServer: HandleProtocolApi = {
 
         if (hasWords) {
             flags |= 1 << 3;
+        }
+
+        if (hasSpellIdOnly) {
+            flags |= 1 << 4;
         }
 
         if (!flags) {
@@ -941,6 +949,10 @@ const handleServer: HandleProtocolApi = {
         if (hasWords) {
             pkg.writeDouble(payload.casterId ?? 0);
             pkg.writeString(payload.msg ?? "");
+        }
+
+        if (hasSpellIdOnly) {
+            pkg.writeShort(payload.spellId!);
         }
 
         socket.send(client);

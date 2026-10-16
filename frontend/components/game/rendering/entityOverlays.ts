@@ -5,6 +5,11 @@ import type { Engine } from "../engine/Engine";
 import { createSpellProjectileVisual } from "./effectsRenderer";
 import { createSpellProjectileVisualFX } from "./effectsRenderer";
 import {
+    buildSpellPlay,
+    resolveSpellFX,
+    type SpellLike,
+} from "./fx/spellFx";
+import {
     getDialogLabelPosition,
     type BodyRenderMetrics,
 } from "./characterLayout";
@@ -1159,6 +1164,58 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         return true;
     };
 
+    /**
+     * Impacto de hechizo 100% partículas (reemplazo del FX por imagen).
+     * Resuelve el arquetipo por spellId (ver fx/spellFx) y compone bursts +
+     * flash + rayos + rayo divino sobre el ancla de la entidad.
+     * Devuelve { played, shake } para que el llamador decida fallback/shake.
+     */
+    const playSpellImpact = (
+        engine: Engine,
+        entityId: number,
+        spell: SpellLike,
+    ): { played: boolean; shake: number } => {
+        if (engine.isDestroyed) {
+            return { played: false, shake: 0 };
+        }
+        const resolved = resolveSpellFX(spell);
+        const anchor = resolveEntityAnchor(engine, entityId);
+        if (!anchor) {
+            return { played: false, shake: resolved.shake };
+        }
+        const manager =
+            engine.fxManager ??
+            (typeof engine.ensureFXManager === "function"
+                ? engine.ensureFXManager()
+                : null);
+        if (!manager) {
+            return { played: false, shake: resolved.shake };
+        }
+        const play = buildSpellPlay(resolved);
+        if (play.ray) {
+            manager.divineRay(anchor.x, anchor.y);
+        }
+        for (const burst of play.bursts) {
+            manager.burst(
+                burst.preset,
+                anchor.x,
+                anchor.y,
+                burst.scale,
+                burst.colors,
+                burst.scale,
+            );
+        }
+        manager.flash(anchor.x, anchor.y, play.flashColor, play.flashSize);
+        for (let i = 0; i < play.bolts; i += 1) {
+            manager.boltStrike(
+                anchor.x + (Math.random() - 0.5) * 70,
+                anchor.y,
+                play.boltColor,
+            );
+        }
+        return { played: true, shake: resolved.shake };
+    };
+
     const updateActiveDialogBubblePositions = (engine: Engine) => {
         const overlay = engine.dialogOverlayContainer;
         if (!overlay) {
@@ -1255,6 +1312,7 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         getParticleStats,
         killParticleLoop,
         playLevelUpAt,
+        playSpellImpact,
         removeCastBarFromOverlay,
         removeDialogBubbleFromContainer,
         removeDialogBubbleFromOverlay,

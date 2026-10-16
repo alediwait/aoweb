@@ -533,12 +533,14 @@ function sendSpellImpactToAreaViewers(
         fxGrh?: number;
         soundId?: number;
         msg?: string;
+        spellId?: number;
     },
 ) {
     const hasImpactVisual = Number(impact.fxGrh ?? 0) > 0 || Number(impact.soundId ?? 0) > 0;
     const hasMagicWords = String(impact.msg ?? "").trim().length > 0;
+    const hasSpellId = Number(impact.spellId ?? 0) > 0;
 
-    if (!hasImpactVisual && !hasMagicWords) {
+    if (!hasImpactVisual && !hasMagicWords && !hasSpellId) {
         return 0;
     }
 
@@ -562,6 +564,7 @@ function sendSpellImpactToAreaViewers(
                     soundId: impact.soundId,
                     casterId,
                     msg: impact.msg,
+                    spellId: impact.spellId,
                 },
                 targetClient,
             );
@@ -4052,6 +4055,7 @@ function attackSpell(ws: RuntimeClient) {
                         fxGrh: datSpell.fxGrh,
                         soundId: datSpell.wav,
                         msg: datSpell.palabrasMagicas,
+                        spellId: idSpell,
                     });
 
                     if (spellTarget.isNpc) {

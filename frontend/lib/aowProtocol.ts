@@ -557,6 +557,8 @@ export interface SpellVisualPacket {
     soundId?: number;
     casterId?: number;
     msg?: string;
+    /** spellId sin proyectil (impactos/buffs directos). */
+    spellIdOnly?: boolean;
 }
 
 export interface CritHitPacket {
@@ -1596,6 +1598,7 @@ function parseServerPacketById(
             const hasFx = (flags & (1 << 1)) !== 0;
             const hasSound = (flags & (1 << 2)) !== 0;
             const hasWords = (flags & (1 << 3)) !== 0;
+            const hasSpellIdOnly = (flags & (1 << 4)) !== 0;
             const hasTargetId = hasFx || hasSound;
             const payload: SpellVisualPacket = {};
 
@@ -1622,6 +1625,11 @@ function parseServerPacketById(
             if (hasWords) {
                 payload.casterId = reader.getDouble();
                 payload.msg = reader.getString();
+            }
+
+            if (hasSpellIdOnly && !hasProjectile) {
+                payload.spellId = reader.getShort();
+                payload.spellIdOnly = true;
             }
 
             return {

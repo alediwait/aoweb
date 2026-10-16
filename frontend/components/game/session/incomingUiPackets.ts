@@ -141,15 +141,104 @@ export async function handleIncomingUiPacket({
                 }
             }
 
+            // Impacto 100% partículas cuando el hechizo es conocido por
+            // spellId (reemplaza el FX por imagen del fxGrh).
+            let spellImpactShake = 0;
             if (
+                typeof packet.payload.spellId === "number" &&
+                packet.payload.spellId > 0 &&
+                typeof packet.payload.targetId === "number"
+            ) {
+                const spellRecord =
+                    engine.spellsDB?.[String(packet.payload.spellId)];
+                if (spellRecord) {
+                    const targetId = Number(packet.payload.targetId);
+                    const result = ctx.playSpellImpact(engine, targetId, {
+                        spellId: Number(packet.payload.spellId),
+                        name: spellRecord.name,
+                        desc: spellRecord.desc,
+                        manaRequired: spellRecord.manaRequired,
+                        minHp: spellRecord.minHp,
+                        maxHp: spellRecord.maxHp,
+                        subeHp: spellRecord.subeHp,
+                        paraliza: (spellRecord as any).paraliza,
+                        inmoviliza: (spellRecord as any).inmoviliza,
+                        invisibilidad: spellRecord.invisibilidad,
+                        revivir: (spellRecord as any).revivir,
+                        removerParalisis: spellRecord.removerParalisis,
+                        subeAg: spellRecord.subeAg,
+                        subeFz: spellRecord.subeFz,
+                    });
+                    if (result.played) {
+                        spellImpactShake = Number(result.shake) || 0;
+                    } else if (
+                        typeof packet.payload.fxGrh === "number" &&
+                        packet.payload.fxGrh > 0
+                    ) {
+                        // Fallback legacy si no se pudo anclar el objetivo.
+                        await ctx.renderEntityFX(
+                            engine,
+                            targetId,
+                            packet.payload.fxGrh,
+                        );
+                    }
+                } else if (
+                    typeof packet.payload.fxGrh === "number" &&
+                    packet.payload.fxGrh > 0
+                ) {
+                    await ctx.renderEntityFX(
+                        engine,
+                        Number(packet.payload.targetId),
+                        packet.payload.fxGrh,
+                    );
+                }
+            } else if (
                 typeof packet.payload.targetId === "number" &&
-                typeof packet.payload.fxGrh === "number"
+                typeof packet.payload.fxGrh === "number" &&
+                packet.payload.fxGrh > 0
             ) {
                 await ctx.renderEntityFX(
                     engine,
                     packet.payload.targetId,
                     packet.payload.fxGrh,
                 );
+            }
+
+            // Shake para alta magia (escala con el maná del hechizo).
+            if (spellImpactShake > 0 && !engine.isDestroyed) {
+                const userId = engine.user?.id;
+                const involvesMe =
+                    Number(packet.payload.casterId) === userId ||
+                    Number(packet.payload.targetId) === userId;
+                if (involvesMe) {
+                    engine.addScreenShake?.(spellImpactShake);
+                } else if (engine.mapContainer && engine.app) {
+                    const target = engine.personajes?.[
+                        Number(packet.payload.targetId)
+                    ];
+                    if (
+                        target &&
+                        Number.isFinite(Number(target.pos?.x)) &&
+                        Number.isFinite(Number(target.pos?.y))
+                    ) {
+                        const wx =
+                            (Number(target.pos.x) - 1) * TILE_SIZE +
+                            TILE_SIZE / 2;
+                        const wy =
+                            (Number(target.pos.y) - 1) * TILE_SIZE +
+                            TILE_SIZE / 2;
+                        const viewX = -engine.mapContainer.x;
+                        const viewY = -engine.mapContainer.y;
+                        if (
+                            wx >= viewX - 64 &&
+                            wx <= viewX + engine.app.screen.width + 64 &&
+                            wy >= viewY - 64 &&
+                            wy <= viewY + engine.app.screen.height + 64
+                        ) {
+                            engine.addScreenShake?.(spellImpactShake * 0.45);
+                        }
+                    }
+                }
             }
 
             if (
