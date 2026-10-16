@@ -49,3 +49,25 @@ Texto crítico	incomingUiPackets.ts + variante floatingCrit	Solo frontend	—
 Burst/flash crítico	FXManager.burst/flash existentes	Reuso, 0 código nuevo de motor	—
 Screen shake	Engine.updateCamera (+ campo shakeTrauma, + toggle accesibilidad)	~20 líneas	—
 Orden sugerido: 1) shake + burst con trigger temporal por console (1 día, testeable sin servidor), 2) aura de meditación (2–3 días, incluye presets y QA ?fxStress), 3) crit.ts + paquete critHit con flag y paridad de TTK ±10% antes de activar global.
+
+
+
+
+
+
+
+Ultimo cambio a meditar
+Listo: meditación 100% partículas, sin rastro del sprite viejo.
+
+Cómo quedó (por tier de nivel, mismo animFX del servidor, cero cambios de protocolo):
+
+4 chica / 5 mediana / 6 grande / 16 xgrande / 34 xxgrande → escala 0.7 / 0.85 / 1.0 / 1.25 / 1.5 y paleta propia que evoluciona: hielo → violeta → magenta arcano → oro → blanco radiante.
+4 loops envolventes anclados al personaje: órbita exterior + órbita interior contrarrotante y más rápida + columna ascendente + destellos (los colores se inyectan por tier vía override en loop(), sin duplicar presets).
+Tier máximo: rayos quebrados cielo→suelo alrededor cada 650ms (pool de 6 Graphics reutilizados, con rama secundaria, parpadeo y destello en el impacto).
+Al cortar la meditación (toggle, acción, maná lleno, golpe recibido) se matan loops e intervalo en clearEntityFX; el destroy() del motor limpia todo.
+Motor (nuevo soporte reutilizable):
+
+ParticlePool integra órbitas elípticas (ángulo + radio + bamboleo vertical por partícula, estado SoA, muerte O(1) como el resto).
+FXManager.boltStrike() — rayos con culling por viewport y fade con flicker.
+renderEntityFX deriva los 5 fxGrh de meditación a la vía pura de partículas antes de tocar sprites; el resto de FX sigue intacto.
+Costo tier máximo: ~95 partículas vivas + 1 halo + 1 rayo cada 650ms (~7% del budget ALTO). tsc + eslint limpios.

@@ -58,6 +58,15 @@ export class ParticlePool {
     private readonly flicker: Float32Array;
     private readonly seed: Float32Array;
     private readonly rotSpeed: Float32Array;
+    // Órbita (meditación): centro fijo al spawnear + ángulo integrado.
+    private readonly orbitOn: Uint8Array;
+    private readonly ocx: Float32Array;
+    private readonly ocy: Float32Array;
+    private readonly oradius: Float32Array;
+    private readonly oangle: Float32Array;
+    private readonly ospeed: Float32Array;
+    private readonly oyAmp: Float32Array;
+    private readonly oyFreq: Float32Array;
 
     constructor(
         texture: Texture,
@@ -104,6 +113,14 @@ export class ParticlePool {
         this.flicker = new Float32Array(capacity);
         this.seed = new Float32Array(capacity);
         this.rotSpeed = new Float32Array(capacity);
+        this.orbitOn = new Uint8Array(capacity);
+        this.ocx = new Float32Array(capacity);
+        this.ocy = new Float32Array(capacity);
+        this.oradius = new Float32Array(capacity);
+        this.oangle = new Float32Array(capacity);
+        this.ospeed = new Float32Array(capacity);
+        this.oyAmp = new Float32Array(capacity);
+        this.oyFreq = new Float32Array(capacity);
     }
 
     get alive(): number {
@@ -144,9 +161,22 @@ export class ParticlePool {
         this.flicker[i] = s.flicker;
         this.seed[i] = s.seed;
         this.rotSpeed[i] = s.rotationSpeed;
-
-        particle.x = s.x;
-        particle.y = s.y;
+        if (s.orbit) {
+            this.orbitOn[i] = 1;
+            this.ocx[i] = s.orbit.centerX;
+            this.ocy[i] = s.orbit.centerY;
+            this.oradius[i] = s.orbit.radius;
+            this.oangle[i] = s.orbit.startAngle;
+            this.ospeed[i] = s.orbit.angularSpeed;
+            this.oyAmp[i] = s.orbit.verticalAmp;
+            this.oyFreq[i] = s.orbit.verticalFreq;
+            particle.x = s.orbit.centerX + Math.cos(s.orbit.startAngle) * s.orbit.radius;
+            particle.y = s.orbit.centerY + Math.sin(s.orbit.startAngle) * s.orbit.radius * 0.72;
+        } else {
+            this.orbitOn[i] = 0;
+            particle.x = s.x;
+            particle.y = s.y;
+        }
         const baseScale = Math.max(0.01, s.sizeStartPx / this.textureSize);
         particle.scaleX = baseScale;
         particle.scaleY = baseScale;
@@ -187,6 +217,14 @@ export class ParticlePool {
             this.flicker[index] = this.flicker[last];
             this.seed[index] = this.seed[last];
             this.rotSpeed[index] = this.rotSpeed[last];
+            this.orbitOn[index] = this.orbitOn[last];
+            this.ocx[index] = this.ocx[last];
+            this.ocy[index] = this.ocy[last];
+            this.oradius[index] = this.oradius[last];
+            this.oangle[index] = this.oangle[last];
+            this.ospeed[index] = this.ospeed[last];
+            this.oyAmp[index] = this.oyAmp[last];
+            this.oyFreq[index] = this.oyFreq[last];
         }
         children.pop();
         this.aliveCount = last;
@@ -213,15 +251,31 @@ export class ParticlePool {
             if (!p) {
                 continue;
             }
-            // Integración.
-            const dragK = 1 - Math.min(0.95, this.drag[i] * dt);
-            const nvx = (this.vx[i] + this.gravX[i] * dt) * dragK;
-            const nvy = (this.vy[i] + this.gravY[i] * dt) * dragK;
-            this.vx[i] = nvx;
-            this.vy[i] = nvy;
-            const wob = this.turb[i] * Math.sin(nextAge * 0.006 + this.seed[i] * 6.283);
-            p.x += nvx * dt + wob * dt * 8;
-            p.y += nvy * dt + Math.cos(nextAge * 0.005 + this.seed[i] * 6.283) * this.turb[i] * 0.6 * dt * 8;
+            // Integración: orbital (meditación) o balística.
+            const wob =
+                this.turb[i] *
+                Math.sin(nextAge * 0.006 + this.seed[i] * 6.283);
+            if (this.orbitOn[i] === 1) {
+                const nextAngle = this.oangle[i] + this.ospeed[i] * dt;
+                this.oangle[i] = nextAngle;
+                p.x =
+                    this.ocx[i] +
+                    Math.cos(nextAngle) * this.oradius[i] +
+                    wob * dt * 4;
+                p.y =
+                    this.ocy[i] +
+                    Math.sin(nextAngle) * this.oradius[i] * 0.72 +
+                    Math.sin(nextAge * 0.004 * this.oyFreq[i] + this.seed[i] * 6.283) *
+                        this.oyAmp[i];
+            } else {
+                const dragK = 1 - Math.min(0.95, this.drag[i] * dt);
+                const nvx = (this.vx[i] + this.gravX[i] * dt) * dragK;
+                const nvy = (this.vy[i] + this.gravY[i] * dt) * dragK;
+                this.vx[i] = nvx;
+                this.vy[i] = nvy;
+                p.x += nvx * dt + wob * dt * 8;
+                p.y += nvy * dt + Math.cos(nextAge * 0.005 + this.seed[i] * 6.283) * this.turb[i] * 0.6 * dt * 8;
+            }
             p.rotation += this.rotSpeed[i] * dt;
             // Apariencia.
             const baseScale =

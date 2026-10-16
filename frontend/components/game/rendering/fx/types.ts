@@ -75,6 +75,16 @@ export interface EmitterConfig {
     /** Rotación inicial [min, max] rad + velocidad [min, max] rad/s. */
     rotation?: [number, number];
     rotationSpeed?: [number, number];
+    /**
+     * Movimiento orbital alrededor del ancla (meditación): ignora
+     * velocidad/gravedad y gira sobre elipse (squash vertical 0.72).
+     */
+    orbit?: {
+        radius: [number, number];
+        angularSpeed: [number, number];
+        verticalAmp: number;
+        verticalFreq?: number;
+    };
     /** Halo ADD pulsante opcional (antorchas, fogatas, auras). */
     glow?: FXGlowSpec;
     /** Margen extra (px) para no spawnear fuera de viewport. */
@@ -102,6 +112,15 @@ export interface ResolvedSpawn {
     seed: number;
     rotation: number;
     rotationSpeed: number;
+    orbit?: {
+        centerX: number;
+        centerY: number;
+        radius: number;
+        startAngle: number;
+        angularSpeed: number;
+        verticalAmp: number;
+        verticalFreq: number;
+    };
 }
 
 export interface FXStats {

@@ -15,11 +15,16 @@
 > + impacto de llegada, fallback legacy si no hay manager) y
 > `rendering/entityOverlays.ts` (usa V2 automáticamente + helpers
 > `renderFireLoop/renderImpactBurstAtTile/renderImpactBurstAtWorld/killParticleLoop/getParticleStats`).
-> Debug: `window.__aowebFX` (stats) y `?fxStress=N`. **Meditación (16-oct-2026):**
-> aura GPU implementada sin cambio de protocolo — `entityOverlays.ts` mapea
-> fxGrh 4/5/6/16/34 → loops `meditate-aura/rise/spark` (`fx/presets.ts`) con
-> escala 0.7/0.85/1.0/1.25/1.5, anclados a la entidad y liberados en
-> `clearEntityFX`/destroy. **Crítico + shake + level-up (16-oct-2026):**
+> Debug: `window.__aowebFX` (stats) y `?fxStress=N`. **Meditación (16-oct-2026,
+> v2):** reemplazo total a 100% partículas, sin sprite legacy —
+> `renderEntityFX` deriva fxGrh 4/5/6/16/34 a 4 loops GPU
+> (`meditate-orbit` + `meditate-orbit-inner` contrarrotante + `meditate-rise`
+> + `meditate-spark`, con órbitas elípticas integradas en el pool) con escala
+> 0.7/0.85/1.0/1.25/1.5 y paleta propia por tier (hielo→violeta→magenta→oro→
+> blanco radiante); el tier máximo suma rayos quebrados (`boltStrike`, pool
+> de 6 `Graphics` + intervalo 650ms, con culling). Ancla al torso vía
+> `bodyMetrics` (los offsetX/offsetY legacy del fxsDB compensaban sprites
+> altos y desplazaban el aura metros fuera del cuerpo). Sin cambio de protocolo. **Crítico + shake + level-up (16-oct-2026):**
 > `server/src/crit.ts` (5% base, ×1.5 físico / ×1.4 magia, solo si acierta,
 > atacantes PJ en `userDmgUser/userDmgNpc/userSpellUser/userSpellNpc`) con
 > paquete nuevo `critHit` (id 82) + `SND_NIVEL` al subir; cliente: texto

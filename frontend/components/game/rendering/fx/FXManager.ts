@@ -1,4 +1,4 @@
-import { Container, Sprite, type Application } from "pixi.js";
+import { Container, Graphics, Sprite, type Application } from "pixi.js";
 import { ParticlePool } from "./ParticlePool";
 import { ensureFXTextures, type FXTextureSet } from "./textures";
 import { getFXPreset } from "./presets";
@@ -46,10 +46,48 @@ interface ActiveFlash {
 }
 
 const FLASH_POOL_SIZE = 24;
+const BOLT_POOL_SIZE = 6;
+const BOLT_LIFE_MS = 150;
 const VIEWPORT_MARGIN = 160;
 
 function randRange(min: number, max: number): number {
     return min + Math.random() * Math.max(0, max - min);
+}
+
+function drawBolt(g: Graphics, x: number, y: number, color: number): void {
+    g.clear();
+    g.alpha = 1;
+    const topX = x + (Math.random() - 0.5) * 64;
+    const topY = y - 150;
+    const endX = x + (Math.random() - 0.5) * 28;
+    const endY = y + 8;
+    const segments = 7;
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i <= segments; i += 1) {
+        const t = i / segments;
+        const jitter = (1 - t) * 26;
+        pts.push([
+            topX + (endX - topX) * t + (Math.random() - 0.5) * 2 * jitter,
+            topY + (endY - topY) * t,
+        ]);
+    }
+    const trace = (width: number, strokeColor: number, alpha: number): void => {
+        const first = pts[0];
+        g.moveTo(first[0], first[1]);
+        for (let i = 1; i < pts.length; i += 1) {
+            g.lineTo(pts[i][0], pts[i][1]);
+        }
+        g.stroke({ width, color: strokeColor, alpha });
+    };
+    trace(5, color, 0.3);
+    trace(2, 0xffffff, 0.95);
+    // Rama secundaria desde el punto medio.
+    const mid = pts[Math.floor(pts.length / 2)];
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    g.moveTo(mid[0], mid[1]);
+    g.lineTo(mid[0] + dir * 22, mid[1] + 18);
+    g.lineTo(mid[0] + dir * 34, mid[1] + 44);
+    g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.8 });
 }
 
 function pickPool(
@@ -76,6 +114,12 @@ export class FXManager {
     } | null = null;
     private readonly flashLayer = new Container();
     private readonly glowLayer = new Container();
+    private readonly boltLayer = new Container();
+    private readonly bolts: Array<{
+        g: Graphics;
+        ageMs: number;
+        lifeMs: number;
+    }> = [];
     private readonly flashes: ActiveFlash[] = [];
     private readonly flashFree: Sprite[] = [];
     private readonly emitters = new Map<number, ActiveEmitter>();
@@ -113,6 +157,14 @@ export class FXManager {
         parent.addChild(this.flashLayer);
         this.glowLayer.blendMode = "add";
         parent.addChild(this.glowLayer);
+        this.boltLayer.blendMode = "add";
+        parent.addChild(this.boltLayer);
+        for (let i = 0; i < BOLT_POOL_SIZE; i += 1) {
+            const g = new Graphics();
+            g.visible = false;
+            this.boltLayer.addChild(g);
+            this.bolts.push({ g, ageMs: 0, lifeMs: 0 });
+        }
         for (let i = 0; i < FLASH_POOL_SIZE; i += 1) {
             const sprite = new Sprite(textures.soft);
             sprite.anchor.set(0.5);
@@ -182,6 +234,24 @@ export class FXManager {
         const spawn: ResolvedSpawn = {
             x: sx,
             y: sy,
+            orbit: config.orbit
+                ? {
+                      centerX: x,
+                      centerY: y,
+                      radius:
+                          randRange(
+                              config.orbit.radius[0],
+                              config.orbit.radius[1],
+                          ) * scale,
+                      startAngle: Math.random() * Math.PI * 2,
+                      angularSpeed: randRange(
+                          config.orbit.angularSpeed[0],
+                          config.orbit.angularSpeed[1],
+                      ),
+                      verticalAmp: config.orbit.verticalAmp * scale,
+                      verticalFreq: config.orbit.verticalFreq ?? 1,
+                  }
+                : undefined,
             vx: Math.cos(dir) * speed,
             vy: Math.sin(dir) * speed,
             lifeMs: randRange(config.lifetime[0], config.lifetime[1]),
@@ -254,28 +324,36 @@ export class FXManager {
     loop(
         config: string | EmitterConfig,
         getPos: () => { x: number; y: number } | null,
-        opts?: { durationMs?: number; scale?: number },
+        opts?: {
+            durationMs?: number;
+            scale?: number;
+            colors?: { start: number; end: number };
+        },
     ): number {
         const resolved = this.resolveConfig(config);
         if (!resolved || !this.ready || !this.pools || !this.textures) {
             return 0;
         }
+        // Override de tinte por tier (meditación) sin duplicar presets.
+        const effective: EmitterConfig = opts?.colors
+            ? { ...resolved, color: [opts.colors.start, opts.colors.end] }
+            : resolved;
         const id = this.nextEmitterId++;
         let glow: Sprite | null = null;
         let glowBaseAlpha = 0;
-        if (resolved.glow && this.glowLayer.children.length < 48) {
+        if (effective.glow && this.glowLayer.children.length < 48) {
             glow = new Sprite(this.textures.soft);
             glow.anchor.set(0.5);
-            glow.tint = resolved.glow.color;
-            glowBaseAlpha = resolved.glow.alpha;
+            glow.tint = opts?.colors ? opts.colors.start : effective.glow.color;
+            glowBaseAlpha = effective.glow.alpha;
             glow.alpha = glowBaseAlpha;
-            const s = (resolved.glow.size * (opts?.scale ?? 1)) / this.textures.size;
+            const s = (effective.glow.size * (opts?.scale ?? 1)) / this.textures.size;
             glow.scale.set(Math.max(0.05, s));
             this.glowLayer.addChild(glow);
         }
         this.emitters.set(id, {
             id,
-            config: resolved,
+            config: effective,
             getPos,
             spawnAcc: 0,
             elapsedMs: 0,
@@ -412,6 +490,29 @@ export class FXManager {
         this.burst("levelup", x, y - 10);
     }
 
+    /**
+     * Rayo quebrado (meditación máxima): polilínea dentada cielo→suelo con
+     * rama secundaria, parpadeo y destello en el impacto. Pool de 6
+     * Graphics reutilizados; no-op fuera de viewport.
+     */
+    boltStrike(x: number, y: number, color = 0xbfe0ff): void {
+        if (!this.ready) {
+            return;
+        }
+        if (!this.inViewport(this.viewport(), x, y, 160)) {
+            return;
+        }
+        const slot = this.bolts.find((b) => b.lifeMs <= 0);
+        if (!slot) {
+            return;
+        }
+        drawBolt(slot.g, x, y, color);
+        slot.g.visible = true;
+        slot.ageMs = 0;
+        slot.lifeMs = BOLT_LIFE_MS;
+        this.flash(x, y + 4, 0xd6ecff, 55);
+    }
+
     kill(id: number): void {
         const emitter = this.emitters.get(id);
         if (!emitter) {
@@ -514,6 +615,24 @@ export class FXManager {
             flash.sprite.alpha = flash.startAlpha * (1 - t);
         }
 
+        // Rayos (meditación máxima): fade con parpadeo.
+        for (const bolt of this.bolts) {
+            if (bolt.lifeMs <= 0) {
+                continue;
+            }
+            bolt.ageMs += dt;
+            const t = bolt.ageMs / Math.max(1, bolt.lifeMs);
+            if (t >= 1) {
+                bolt.lifeMs = 0;
+                bolt.g.visible = false;
+                bolt.g.clear();
+                continue;
+            }
+            bolt.g.alpha =
+                (1 - t) *
+                (0.65 + 0.35 * Math.abs(Math.sin(bolt.ageMs * 0.25)));
+        }
+
         this.pools.add.update(dt);
         this.pools.normal.update(dt);
         this.pools.spark.update(dt);
@@ -572,6 +691,18 @@ export class FXManager {
         this.pools?.normal.destroy();
         this.pools?.spark.destroy();
         this.pools = null;
+        for (const bolt of this.bolts) {
+            if (!bolt.g.destroyed) {
+                bolt.g.destroy();
+            }
+        }
+        this.bolts.length = 0;
+        if (this.boltLayer.parent) {
+            this.boltLayer.parent.removeChild(this.boltLayer);
+        }
+        if (!this.boltLayer.destroyed) {
+            this.boltLayer.destroy({ children: true });
+        }
         for (const flash of this.flashes) {
             if (!flash.sprite.destroyed) {
                 flash.sprite.destroy();

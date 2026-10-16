@@ -14,25 +14,95 @@ import {
 } from "./rowLayerContainers";
 
 /**
- * Aura de meditación (FXManager, partículas GPU).
- * Mapea los fxGrh de meditación del servidor (vars.meditacion:
- * chica 4 / mediana 5 / grande 6 / xgrande 16 / xxgrande 34) a escala
- * del aura. Sin cambio de protocolo: el tier ya viaja en el animFX.
+ * Meditación 100% partículas (sin sprite legacy).
+ * Mapea los fxGrh del servidor (vars.meditacion: chica 4 / mediana 5 /
+ * grande 6 / xgrande 16 / xxgrande 34) a escala + paleta por tier.
+ * El tier máximo además genera rayos alrededor (intervalo propio).
  */
-const MEDITATION_FX_SCALE: Record<number, number> = {
-    4: 0.7,
-    5: 0.85,
-    6: 1.0,
-    16: 1.25,
-    34: 1.5,
+interface MeditationTierColors {
+    orbit: { start: number; end: number };
+    inner: { start: number; end: number };
+    rise: { start: number; end: number };
+    spark: { start: number; end: number };
+}
+
+interface MeditationTier {
+    scale: number;
+    colors: MeditationTierColors;
+    lightning: boolean;
+}
+
+const MEDITATION_TIERS: Record<number, MeditationTier> = {
+    4: {
+        scale: 0.7,
+        colors: {
+            orbit: { start: 0xcfeaff, end: 0x38b6ff },
+            inner: { start: 0xffffff, end: 0x6ac8ff },
+            rise: { start: 0x9adcff, end: 0x2f9dff },
+            spark: { start: 0xffffff, end: 0x6ac8ff },
+        },
+        lightning: false,
+    },
+    5: {
+        scale: 0.85,
+        colors: {
+            orbit: { start: 0xddc2ff, end: 0x7a3cff },
+            inner: { start: 0xffffff, end: 0x9a6bff },
+            rise: { start: 0xc9a6ff, end: 0x5a2bff },
+            spark: { start: 0xffffff, end: 0x9a6bff },
+        },
+        lightning: false,
+    },
+    6: {
+        scale: 1.0,
+        colors: {
+            orbit: { start: 0xffc2ec, end: 0xc01aff },
+            inner: { start: 0xffffff, end: 0xff5cd0 },
+            rise: { start: 0xff9ae2, end: 0x8a0aff },
+            spark: { start: 0xffffff, end: 0xff5cd0 },
+        },
+        lightning: false,
+    },
+    16: {
+        scale: 1.25,
+        colors: {
+            orbit: { start: 0xfff3c0, end: 0xff9a2a },
+            inner: { start: 0xffffff, end: 0xffb84d },
+            rise: { start: 0xffe08a, end: 0xff6a00 },
+            spark: { start: 0xffffff, end: 0xffb84d },
+        },
+        lightning: false,
+    },
+    34: {
+        scale: 1.5,
+        colors: {
+            orbit: { start: 0xffffff, end: 0xffd34d },
+            inner: { start: 0xffffff, end: 0xffe08a },
+            rise: { start: 0xfffbe8, end: 0xffb800 },
+            spark: { start: 0xffffff, end: 0xffe08a },
+        },
+        lightning: true,
+    },
 };
 
-const MEDITATION_PRESETS = ["meditate-aura", "meditate-rise", "meditate-spark"];
+const MEDITATION_LOOP_DEFS = [
+    { preset: "meditate-orbit", colorsKey: "orbit" },
+    { preset: "meditate-orbit-inner", colorsKey: "inner" },
+    { preset: "meditate-rise", colorsKey: "rise" },
+    { preset: "meditate-spark", colorsKey: "spark" },
+] as const;
 
-// Handles de loops por entidad, sin tocar la clase Engine.
-const meditationLoops = new WeakMap<Engine, Map<number, number[]>>();
+const MEDITATION_BOLT_INTERVAL_MS = 650;
 
-function getMeditationLoopMap(engine: Engine): Map<number, number[]> {
+// Loops + intervalo de rayos por entidad, sin tocar la clase Engine.
+interface MeditationState {
+    handles: number[];
+    boltIntervalId?: number;
+}
+
+const meditationLoops = new WeakMap<Engine, Map<number, MeditationState>>();
+
+function getMeditationLoopMap(engine: Engine): Map<number, MeditationState> {
     let map = meditationLoops.get(engine);
     if (!map) {
         map = new Map();
@@ -43,11 +113,14 @@ function getMeditationLoopMap(engine: Engine): Map<number, number[]> {
 
 function clearMeditationLoops(engine: Engine, entityId: number): void {
     const map = meditationLoops.get(engine);
-    const handles = map?.get(entityId);
-    if (!handles || handles.length === 0) {
+    const state = map?.get(entityId);
+    if (!state) {
         return;
     }
-    for (const handle of handles) {
+    if (typeof state.boltIntervalId === "number") {
+        window.clearInterval(state.boltIntervalId);
+    }
+    for (const handle of state.handles) {
         engine.fxManager?.kill(handle);
     }
     map?.delete(entityId);
@@ -253,12 +326,44 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         clearMeditationLoops(engine, entityId);
     };
 
+    /**
+     * Ancla de partículas sobre una entidad: centro del torso según
+     * `bodyMetrics` (lo escribe characterRenderer al renderizar), con
+     * fallback al centro del tile. Null si la entidad no existe.
+     */
+    const resolveEntityAnchor = (
+        engine: Engine,
+        entityId: number,
+    ): { x: number; y: number } | null => {
+        const target = options.getEntityContainer(engine, entityId);
+        if (!target || (target as any).destroyed) {
+            return null;
+        }
+        const metrics = (target as any).bodyMetrics as
+            | { x: number; y: number; width: number; height: number }
+            | undefined;
+        if (
+            metrics &&
+            Number.isFinite(metrics.width) &&
+            Number.isFinite(metrics.height) &&
+            metrics.width > 0 &&
+            metrics.height > 0
+        ) {
+            return {
+                x: Math.round(target.x + metrics.x + metrics.width / 2),
+                y: Math.round(target.y + metrics.y + metrics.height / 2),
+            };
+        }
+        return {
+            x: Math.round(target.x + TILE_SIZE / 2),
+            y: Math.round(target.y + TILE_SIZE / 2),
+        };
+    };
+
     const startMeditationAura = (
         engine: Engine,
         entityId: number,
-        scale: number,
-        offsetX: number,
-        offsetY: number,
+        tier: MeditationTier,
     ): void => {
         if (engine.isDestroyed) {
             return;
@@ -271,28 +376,47 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         if (!manager) {
             return;
         }
-        // El ancla se resuelve por frame: sigue a la entidad y si el
-        // contenedor desaparece el loop se auto-killea (getPos → null).
-        const getPos = (): { x: number; y: number } | null => {
-            const target = options.getEntityContainer(engine, entityId);
-            if (!target || (target as any).destroyed) {
-                return null;
-            }
-            return {
-                x: target.x + Number(offsetX ?? 0),
-                y: target.y + Number(offsetY ?? 0),
-            };
-        };
+        // Ancla al torso del personaje (NO a los offsetX/offsetY legacy del
+        // fxsDB: esos compensaban la esquina de sprites altos, ej. -53,-220,
+        // y dejaban el aura a metros del cuerpo). Se resuelve por frame:
+        // sigue a la entidad y si el contenedor desaparece el loop se
+        // auto-killea (getPos → null).
+        const getPos = (): { x: number; y: number } | null =>
+            resolveEntityAnchor(engine, entityId);
         clearMeditationLoops(engine, entityId);
-        const handles: number[] = [];
-        for (const presetId of MEDITATION_PRESETS) {
-            const handle = manager.loop(presetId, getPos, { scale });
+        const state: MeditationState = { handles: [] };
+        for (const def of MEDITATION_LOOP_DEFS) {
+            const handle = manager.loop(def.preset, getPos, {
+                scale: tier.scale,
+                colors: tier.colors[def.colorsKey],
+            });
             if (handle > 0) {
-                handles.push(handle);
+                state.handles.push(handle);
             }
         }
-        if (handles.length > 0) {
-            getMeditationLoopMap(engine).set(entityId, handles);
+        if (tier.lightning) {
+            state.boltIntervalId = window.setInterval(() => {
+                if (engine.isDestroyed) {
+                    return;
+                }
+                const mgr = engine.fxManager;
+                if (!mgr) {
+                    return;
+                }
+                const pos = getPos();
+                if (!pos) {
+                    return;
+                }
+                mgr.boltStrike(
+                    pos.x + (Math.random() - 0.5) * 44,
+                    pos.y - 10,
+                );
+            }, MEDITATION_BOLT_INTERVAL_MS);
+        }
+        if (state.handles.length > 0) {
+            getMeditationLoopMap(engine).set(entityId, state);
+        } else if (typeof state.boltIntervalId === "number") {
+            window.clearInterval(state.boltIntervalId);
         }
     };
 
@@ -359,6 +483,26 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
             activeEffect.parent
         ) {
             positionEntityFX(engine, entityId);
+            return;
+        }
+
+        // Meditación 100% partículas: sin sprite legacy. El tier (escala +
+        // paleta + rayos) ya viaja en el animFX del servidor.
+        const meditationTier = MEDITATION_TIERS[graphicId];
+        if (meditationTier && engine.fxsDB) {
+            const existing = meditationLoops.get(engine)?.get(entityId);
+            if (
+                storedGraphicId === graphicId &&
+                existing &&
+                existing.handles.length > 0
+            ) {
+                return;
+            }
+            const now = Date.now();
+            engine.entityEffectGraphicIds.set(entityId, graphicId);
+            engine.entityEffectStartedAt.set(entityId, now);
+            engine.entityEffectExpiresAt.delete(entityId);
+            startMeditationAura(engine, entityId, meditationTier);
             return;
         }
 
@@ -472,18 +616,6 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         engine.entityEffects.set(entityId, effectSprite);
         engine.entityEffectStartedAt.set(entityId, startedAt);
         positionEntityFX(engine, entityId);
-
-        // Aura de meditación (partículas GPU ancladas a la entidad).
-        const meditationScale = MEDITATION_FX_SCALE[graphicId];
-        if (meditationScale !== undefined) {
-            startMeditationAura(
-                engine,
-                entityId,
-                meditationScale,
-                effectData.offsetX,
-                effectData.offsetY,
-            );
-        }
 
         if (isPersistentEffect) {
             engine.entityEffectExpiresAt.delete(entityId);
@@ -1011,11 +1143,8 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         if (engine.isDestroyed) {
             return false;
         }
-        const container = options.getEntityContainer(engine, entityId);
-        if (
-            !options.canUseEngineContainer(engine, container) ||
-            !container
-        ) {
+        const anchor = resolveEntityAnchor(engine, entityId);
+        if (!anchor) {
             return false;
         }
         const manager =
@@ -1026,7 +1155,7 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         if (!manager) {
             return false;
         }
-        manager.divineRay(Math.round(container.x), Math.round(container.y));
+        manager.divineRay(anchor.x, anchor.y);
         return true;
     };
 
