@@ -55,6 +55,11 @@ export interface EmitterConfig {
     drag: number;
     /** Radio del disco de spawn alrededor del ancla (px). */
     spawnRadius: number;
+    /**
+     * Segmento de spawn (coords relativas al ancla). Si está presente se
+     * spawnea sobre la línea en vez del disco (ej. rayo divino vertical).
+     */
+    line?: { x1: number; y1: number; x2: number; y2: number };
     /** Tamaño inicial en px [min, max] (diámetro aprox). */
     sizeStart: [number, number];
     /** Multiplicador del tamaño inicial al morir (ej. humo crece: 2.6). */

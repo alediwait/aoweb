@@ -77,6 +77,7 @@ export const CLIENT_PACKET_ID = {
     selfMapMetaDelta: 79,
     spellVisual: 80,
     entityVitalsDelta: 81,
+    critHit: 82,
 } as const;
 
 export type PanelShare = {
@@ -558,6 +559,15 @@ export interface SpellVisualPacket {
     msg?: string;
 }
 
+export interface CritHitPacket {
+    targetId: number;
+    attackerId: number;
+    /** Daño final ya con crítico aplicado. */
+    dmg: number;
+    /** 0 = físico, 1 = hechizo. */
+    kind: number;
+}
+
 export interface AreaItemSnapshot {
     idItem: number;
     map: number;
@@ -693,6 +703,7 @@ export type ParsedServerPacket =
     | { type: "createProjectile"; payload: CreateProjectilePacket }
     | { type: "spellProjectile"; payload: SpellProjectilePacket }
     | { type: "spellVisual"; payload: SpellVisualPacket }
+    | { type: "critHit"; payload: CritHitPacket }
     | { type: "playSound"; payload: { id: number; soundId: number } }
     | { type: "updateHP"; payload: { hp: number } }
     | { type: "tUpdateHP"; payload: { tHp: number } }
@@ -1624,6 +1635,16 @@ function parseServerPacketById(
                 payload: {
                     id: reader.getDouble(),
                     soundId: reader.getShort(),
+                },
+            };
+        case CLIENT_PACKET_ID.critHit:
+            return {
+                type: "critHit",
+                payload: {
+                    targetId: reader.getDouble(),
+                    attackerId: reader.getDouble(),
+                    dmg: reader.getInt(),
+                    kind: reader.getByte(),
                 },
             };
         case CLIENT_PACKET_ID.quitarUserInvItem:

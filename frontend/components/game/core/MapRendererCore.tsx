@@ -652,6 +652,34 @@ function createFloatingCombatText(text: string, color?: string): Text {
     return label;
 }
 
+function createFloatingCritText(text: string): Text {
+    const label = new Text({
+        text,
+        style: new TextStyle({
+            fontFamily: "Verdana",
+            fontSize: 17,
+            fontWeight: "900",
+            fill: 0xffd34d,
+            align: "center",
+            stroke: { color: 0x4a2600, width: 2 },
+            dropShadow: {
+                alpha: 0.9,
+                angle: Math.PI / 5,
+                blur: 2,
+                color: 0xff8a00,
+                distance: 2,
+            },
+        }),
+    });
+
+    label.anchor.set(0.5, 1);
+    label.zIndex = 0.95;
+    (label as any).isDialogBubble = true;
+    (label as any).dialogVariant = "floatingCrit";
+
+    return label;
+}
+
 export default function MapRenderer({
     mapNumber,
     width,
@@ -1471,6 +1499,7 @@ export default function MapRenderer({
                 createCastBar,
                 createDialogBubble,
                 createFloatingCombatText,
+                createFloatingCritText,
                 isCombatDialogMessage,
                 getDialogMessageDuration,
                 getEntityContainer,
@@ -1604,6 +1633,34 @@ export default function MapRenderer({
     const showDialogBubble = React.useCallback(
         (entityId: number, text: string, color?: string) =>
             entityOverlays.showDialogBubble(entityId, text, color),
+        [entityOverlays],
+    );
+
+    const showCritText = React.useCallback(
+        (engine: Engine, entityId: number, text: string) =>
+            entityOverlays.showCritText(engine, entityId, text),
+        [entityOverlays],
+    );
+
+    const playLevelUpAt = React.useCallback(
+        (engine: Engine, entityId: number) =>
+            entityOverlays.playLevelUpAt(engine, entityId),
+        [entityOverlays],
+    );
+
+    const renderImpactBurstAtWorld = React.useCallback(
+        (
+            engine: Engine,
+            worldX: number,
+            worldY: number,
+            presetId?: string,
+        ) =>
+            entityOverlays.renderImpactBurstAtWorld(
+                engine,
+                worldX,
+                worldY,
+                presetId,
+            ),
         [entityOverlays],
     );
 
@@ -1830,6 +1887,9 @@ export default function MapRenderer({
                 upsertSpell,
                 clearTargetingMode,
                 showDialogBubble,
+                showCritText,
+                playLevelUpAt,
+                renderImpactBurstAtWorld,
                 onGlobalNotice,
                 renderEntityFX,
                 renderSpellProjectileVisual,
@@ -1881,6 +1941,9 @@ export default function MapRenderer({
         renderSpellProjectileVisual,
         retainPendingRemoteSnapshotsForMap,
         setIsSceneReady,
+        showCritText,
+        playLevelUpAt,
+        renderImpactBurstAtWorld,
         showDialogBubble,
         startMapChangeTransition,
         syncCastBar,

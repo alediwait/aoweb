@@ -2,6 +2,10 @@ import { OBJECT_TYPE, toPlayerHudState } from "../../../lib/aowProtocol";
 import { syncCharacterCrowdControlState } from "../engine/Engine";
 import type { IncomingPacketHandlerArgs } from "./incomingPacketTypes";
 
+// Último nivel propio visto (para detectar subida y disparar el rayo divino).
+// Se resetea con getMyCharacter (nueva sesión / cambio de mapa con re-login).
+let lastSeenMyLevel = 0;
+
 export async function handleIncomingCharacterPacket({
     packet,
     engine,
@@ -73,6 +77,7 @@ export async function handleIncomingCharacterPacket({
                 partyMembers: ctx.pendingPartyMembersRef.current,
                 clanMembers: ctx.pendingClanMembersRef.current,
             });
+            lastSeenMyLevel = Number(packet.payload.level ?? 0) || 0;
 
             if (packet.payload.map !== renderedMapNumber) {
                 ctx.retainPendingRemoteSnapshotsForMap(packet.payload.map);
@@ -716,6 +721,17 @@ export async function handleIncomingCharacterPacket({
                 engine.user.mana = packet.payload.mana;
                 engine.user.tMana = packet.payload.tMana;
             }
+            // Rayo divino al subir de nivel (solo flanco ascendente real).
+            if (
+                engine &&
+                !engine.isDestroyed &&
+                lastSeenMyLevel > 0 &&
+                Number(packet.payload.level ?? 0) > lastSeenMyLevel &&
+                typeof engine.user?.id === "number"
+            ) {
+                ctx.playLevelUpAt(engine, engine.user.id);
+            }
+            lastSeenMyLevel = Number(packet.payload.level ?? 0) || lastSeenMyLevel;
             ctx.recordResourceValue(
                 "hp",
                 packet.payload.tHp,

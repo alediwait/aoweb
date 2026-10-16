@@ -158,14 +158,30 @@ export class FXManager {
         const spread = config.angle[1];
         const dir = dirBase + (Math.random() - 0.5) * 2 * spread;
         const speed = randRange(config.speed[0], config.speed[1]) * scale;
-        const dist = Math.sqrt(Math.random()) * config.spawnRadius * scale;
-        const ang = Math.random() * Math.PI * 2;
+        let sx: number;
+        let sy: number;
+        if (config.line) {
+            const t = Math.random();
+            sx =
+                x +
+                (config.line.x1 + (config.line.x2 - config.line.x1) * t) *
+                    scale;
+            sy =
+                y +
+                (config.line.y1 + (config.line.y2 - config.line.y1) * t) *
+                    scale;
+        } else {
+            const dist = Math.sqrt(Math.random()) * config.spawnRadius * scale;
+            const ang = Math.random() * Math.PI * 2;
+            sx = x + Math.cos(ang) * dist;
+            sy = y + Math.sin(ang) * dist;
+        }
         const rot = config.rotation
             ? randRange(config.rotation[0], config.rotation[1])
             : 0;
         const spawn: ResolvedSpawn = {
-            x: x + Math.cos(ang) * dist,
-            y: y + Math.sin(ang) * dist,
+            x: sx,
+            y: sy,
             vx: Math.cos(dir) * speed,
             vy: Math.sin(dir) * speed,
             lifeMs: randRange(config.lifetime[0], config.lifetime[1]),
@@ -383,6 +399,17 @@ export class FXManager {
         slot.lifeMs = 150;
         slot.growMult = 2.1;
         slot.startAlpha = 0.85;
+    }
+
+    /** Rayo divino de subida de nivel: haz vertical + destello + burst dorado. */
+    divineRay(x: number, y: number): void {
+        if (!this.ready) {
+            return;
+        }
+        const at = { x, y };
+        this.loop("divine-ray", () => at, { durationMs: 1100 });
+        this.flash(x, y - 20, 0xfff3c0, 110);
+        this.burst("levelup", x, y - 10);
     }
 
     kill(id: number): void {

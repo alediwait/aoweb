@@ -62,6 +62,44 @@ export function setManualFXQuality(q: FXQualityLevel | null): void {
     }
 }
 
+export const SCREEN_SHAKE_STORAGE_KEY = "aoweb-screen-shake";
+
+/** Shake activado salvo override manual u OS con reduced-motion. */
+export function detectScreenShakeEnabled(): boolean {
+    if (typeof window === "undefined") {
+        return true;
+    }
+    try {
+        const raw = window.localStorage.getItem(SCREEN_SHAKE_STORAGE_KEY);
+        if (raw === "0") {
+            return false;
+        }
+        if (raw === "1") {
+            return true;
+        }
+        if (
+            typeof window.matchMedia === "function" &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ) {
+            return false;
+        }
+    } catch {
+        // Ignorar y usar default.
+    }
+    return true;
+}
+
+export function setScreenShakeEnabled(enabled: boolean): void {
+    try {
+        window.localStorage.setItem(
+            SCREEN_SHAKE_STORAGE_KEY,
+            enabled ? "1" : "0",
+        );
+    } catch {
+        // Ignorar.
+    }
+}
+
 function isCoarsePointerMobile(): boolean {
     if (typeof window === "undefined" || typeof navigator === "undefined") {
         return false;

@@ -13,11 +13,51 @@ import {
     syncDisplayObjectToEntityFXRow,
 } from "./rowLayerContainers";
 
+/**
+ * Aura de meditación (FXManager, partículas GPU).
+ * Mapea los fxGrh de meditación del servidor (vars.meditacion:
+ * chica 4 / mediana 5 / grande 6 / xgrande 16 / xxgrande 34) a escala
+ * del aura. Sin cambio de protocolo: el tier ya viaja en el animFX.
+ */
+const MEDITATION_FX_SCALE: Record<number, number> = {
+    4: 0.7,
+    5: 0.85,
+    6: 1.0,
+    16: 1.25,
+    34: 1.5,
+};
+
+const MEDITATION_PRESETS = ["meditate-aura", "meditate-rise", "meditate-spark"];
+
+// Handles de loops por entidad, sin tocar la clase Engine.
+const meditationLoops = new WeakMap<Engine, Map<number, number[]>>();
+
+function getMeditationLoopMap(engine: Engine): Map<number, number[]> {
+    let map = meditationLoops.get(engine);
+    if (!map) {
+        map = new Map();
+        meditationLoops.set(engine, map);
+    }
+    return map;
+}
+
+function clearMeditationLoops(engine: Engine, entityId: number): void {
+    const map = meditationLoops.get(engine);
+    const handles = map?.get(entityId);
+    if (!handles || handles.length === 0) {
+        return;
+    }
+    for (const handle of handles) {
+        engine.fxManager?.kill(handle);
+    }
+    map?.delete(entityId);
+}
+
 type ActiveDialogMessage = {
     text: string;
     color?: string;
     timeoutId: number;
-    variant: "bubble" | "floatingCombat";
+    variant: "bubble" | "floatingCombat" | "floatingCrit";
     startedAt: number;
     durationMs: number;
 };
@@ -43,6 +83,7 @@ type CreateEntityOverlaysOptions = {
     createCastBar: () => Container;
     createDialogBubble: (text: string, color?: string) => Container;
     createFloatingCombatText: (text: string, color?: string) => Text;
+    createFloatingCritText: (text: string) => Text;
     isCombatDialogMessage: (text: string, color?: string) => boolean;
     getDialogMessageDuration: (text: string) => number;
     getEntityContainer: (engine: Engine, entityId: number) => Container | null;
@@ -207,6 +248,51 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
             engine.entityEffectGraphicIds.delete(entityId);
             engine.entityEffectStartedAt.delete(entityId);
             engine.entityEffectExpiresAt.delete(entityId);
+        }
+
+        clearMeditationLoops(engine, entityId);
+    };
+
+    const startMeditationAura = (
+        engine: Engine,
+        entityId: number,
+        scale: number,
+        offsetX: number,
+        offsetY: number,
+    ): void => {
+        if (engine.isDestroyed) {
+            return;
+        }
+        const manager =
+            engine.fxManager ??
+            (typeof engine.ensureFXManager === "function"
+                ? engine.ensureFXManager()
+                : null);
+        if (!manager) {
+            return;
+        }
+        // El ancla se resuelve por frame: sigue a la entidad y si el
+        // contenedor desaparece el loop se auto-killea (getPos → null).
+        const getPos = (): { x: number; y: number } | null => {
+            const target = options.getEntityContainer(engine, entityId);
+            if (!target || (target as any).destroyed) {
+                return null;
+            }
+            return {
+                x: target.x + Number(offsetX ?? 0),
+                y: target.y + Number(offsetY ?? 0),
+            };
+        };
+        clearMeditationLoops(engine, entityId);
+        const handles: number[] = [];
+        for (const presetId of MEDITATION_PRESETS) {
+            const handle = manager.loop(presetId, getPos, { scale });
+            if (handle > 0) {
+                handles.push(handle);
+            }
+        }
+        if (handles.length > 0) {
+            getMeditationLoopMap(engine).set(entityId, handles);
         }
     };
 
@@ -386,6 +472,18 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         engine.entityEffects.set(entityId, effectSprite);
         engine.entityEffectStartedAt.set(entityId, startedAt);
         positionEntityFX(engine, entityId);
+
+        // Aura de meditación (partículas GPU ancladas a la entidad).
+        const meditationScale = MEDITATION_FX_SCALE[graphicId];
+        if (meditationScale !== undefined) {
+            startMeditationAura(
+                engine,
+                entityId,
+                meditationScale,
+                effectData.offsetX,
+                effectData.offsetY,
+            );
+        }
 
         if (isPersistentEffect) {
             engine.entityEffectExpiresAt.delete(entityId);
@@ -726,6 +824,17 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
             offsetY = 25 - easedProgress * 10;
             bubble.alpha = 1 - easedProgress * 0.25;
             bubble.scale.set(1 + (1 - progress) * 0.03);
+        } else if (dialog?.variant === "floatingCrit") {
+            const elapsed = Math.max(0, performance.now() - dialog.startedAt);
+            const progress = Math.min(
+                1,
+                elapsed / Math.max(1, dialog.durationMs),
+            );
+            const easedProgress = 1 - (1 - progress) * (1 - progress);
+            offsetY = 30 - easedProgress * 26;
+            bubble.alpha = progress > 0.7 ? 1 - (progress - 0.7) / 0.3 : 1;
+            const pop = progress < 0.18 ? 0.7 + (progress / 0.18) * 0.5 : 1.2 - progress * 0.15;
+            bubble.scale.set(Math.max(0.5, pop));
         } else {
             bubble.alpha = 1;
             bubble.scale.set(1);
@@ -819,6 +928,108 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         }
     };
 
+    const activeCritBubbles = new Map<
+        number,
+        { bubble: Container | Text; timeoutId: number }
+    >();
+
+    const removeCritBubble = (engine: Engine, entityId: number): void => {
+        const overlay = engine.dialogOverlayContainer;
+        const active = activeCritBubbles.get(entityId);
+        if (active) {
+            window.clearTimeout(active.timeoutId);
+            activeCritBubbles.delete(entityId);
+        }
+        if (!overlay) {
+            return;
+        }
+        const stale = overlay.children.find(
+            (child) => (child as any).critEntityId === entityId,
+        );
+        if (stale) {
+            overlay.removeChild(stale);
+            options.destroyDisplayObjectSafely(stale as any, {
+                children: true,
+            });
+        }
+    };
+
+    /**
+     * Texto flotante de golpe crítico (dorado, grande, con pop).
+     * Vive ~1.1s sobre la víctima y lo mueve el ticker de bubbles
+     * (usa dialogEntityId como las bubbles normales).
+     */
+    const showCritText = (
+        engine: Engine,
+        entityId: number,
+        text: string,
+    ): void => {
+        const overlay = engine.dialogOverlayContainer;
+        if (!overlay || engine.isDestroyed || text.trim().length === 0) {
+            return;
+        }
+        removeCritBubble(engine, entityId);
+        const bubble = options.createFloatingCritText(text);
+        const startedAt = performance.now();
+        const durationMs = 1100;
+        if (
+            !positionDialogBubble(engine, entityId, bubble, {
+                text,
+                timeoutId: 0,
+                variant: "floatingCrit",
+                startedAt,
+                durationMs,
+            })
+        ) {
+            bubble.destroy({ children: true });
+            return;
+        }
+        (bubble as any).dialogEntityId = entityId;
+        (bubble as any).critEntityId = entityId;
+        (bubble as any).critStartedAt = startedAt;
+        (bubble as any).critDurationMs = durationMs;
+        overlay.addChild(bubble);
+        const timeoutId = window.setTimeout(() => {
+            activeCritBubbles.delete(entityId);
+            if ((bubble as any).destroyed || !bubble.parent) {
+                return;
+            }
+            bubble.parent.removeChild(bubble);
+            options.destroyDisplayObjectSafely(bubble as any, {
+                children: true,
+            });
+        }, durationMs);
+        activeCritBubbles.set(entityId, { bubble, timeoutId });
+    };
+
+    /**
+     * Rayo divino de subida de nivel sobre la entidad (haz + burst dorado).
+     * Sin zoom de cámara a propósito: escalar el stage rompería el mapeo
+     * de clicks (hitArea en coords de mundo).
+     */
+    const playLevelUpAt = (engine: Engine, entityId: number): boolean => {
+        if (engine.isDestroyed) {
+            return false;
+        }
+        const container = options.getEntityContainer(engine, entityId);
+        if (
+            !options.canUseEngineContainer(engine, container) ||
+            !container
+        ) {
+            return false;
+        }
+        const manager =
+            engine.fxManager ??
+            (typeof engine.ensureFXManager === "function"
+                ? engine.ensureFXManager()
+                : null);
+        if (!manager) {
+            return false;
+        }
+        manager.divineRay(Math.round(container.x), Math.round(container.y));
+        return true;
+    };
+
     const updateActiveDialogBubblePositions = (engine: Engine) => {
         const overlay = engine.dialogOverlayContainer;
         if (!overlay) {
@@ -828,6 +1039,17 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         for (const bubble of overlay.children) {
             const entityId = (bubble as any).dialogEntityId;
             if (typeof entityId !== "number") {
+                continue;
+            }
+
+            if (typeof (bubble as any).critEntityId === "number") {
+                positionDialogBubble(engine, entityId, bubble as Container, {
+                    text: "",
+                    timeoutId: 0,
+                    variant: "floatingCrit",
+                    startedAt: Number((bubble as any).critStartedAt ?? 0),
+                    durationMs: Number((bubble as any).critDurationMs ?? 1100),
+                });
                 continue;
             }
 
@@ -885,6 +1107,12 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         }
 
         options.getActiveDialogMessages().clear();
+
+        for (const crit of activeCritBubbles.values()) {
+            window.clearTimeout(crit.timeoutId);
+        }
+
+        activeCritBubbles.clear();
     };
 
     const clearAllCastBars = () => {
@@ -897,6 +1125,7 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         clearEntityFX,
         getParticleStats,
         killParticleLoop,
+        playLevelUpAt,
         removeCastBarFromOverlay,
         removeDialogBubbleFromContainer,
         removeDialogBubbleFromOverlay,
@@ -906,6 +1135,7 @@ export function createEntityOverlays(options: CreateEntityOverlaysOptions) {
         renderImpactBurstAtWorld,
         renderProjectileVisual,
         renderSpellProjectileVisual,
+        showCritText,
         showDialogBubble,
         syncCastBar,
         syncDialogBubble,

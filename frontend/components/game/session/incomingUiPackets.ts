@@ -1,4 +1,5 @@
 import type { IncomingPacketHandlerArgs } from "./incomingPacketTypes";
+import { TILE_SIZE } from "../../../lib/viewport";
 
 export async function handleIncomingUiPacket({
     packet,
@@ -182,6 +183,65 @@ export async function handleIncomingUiPacket({
                 packet.payload.grhIndex,
             );
             return true;
+
+        case "critHit": {
+            if (!engine || engine.isDestroyed) {
+                return true;
+            }
+            const targetId = Number(packet.payload.targetId);
+            const attackerId = Number(packet.payload.attackerId);
+            const dmg = Math.max(1, Number(packet.payload.dmg) || 1);
+            const kind = Number(packet.payload.kind) === 1 ? 1 : 0;
+            const userId = engine.user?.id;
+
+            // Posición mundo del objetivo (tile → px).
+            const target = engine.personajes?.[targetId];
+            const hasPos =
+                target &&
+                Number.isFinite(Number(target.pos?.x)) &&
+                Number.isFinite(Number(target.pos?.y));
+            const worldX = hasPos
+                ? (Number(target.pos.x) - 1) * TILE_SIZE + TILE_SIZE / 2
+                : null;
+            const worldY = hasPos
+                ? (Number(target.pos.y) - 1) * TILE_SIZE + TILE_SIZE / 2
+                : null;
+
+            if (worldX !== null && worldY !== null) {
+                ctx.showCritText(engine, targetId, `¡${dmg}!`);
+                ctx.renderImpactBurstAtWorld(
+                    engine,
+                    Math.round(worldX),
+                    Math.round(worldY),
+                    kind === 1 ? "impact-fire" : "impact-physical",
+                );
+            }
+
+            // Shake: fuerte si me pega o pego yo, suave si es visible.
+            const involvesMe = attackerId === userId || targetId === userId;
+            if (involvesMe) {
+                engine.addScreenShake?.(0.55);
+            } else if (
+                worldX !== null &&
+                worldY !== null &&
+                engine.mapContainer &&
+                engine.app
+            ) {
+                const viewX = -engine.mapContainer.x;
+                const viewY = -engine.mapContainer.y;
+                const viewW = engine.app.screen.width;
+                const viewH = engine.app.screen.height;
+                const onScreen =
+                    worldX >= viewX - 64 &&
+                    worldX <= viewX + viewW + 64 &&
+                    worldY >= viewY - 64 &&
+                    worldY <= viewY + viewH + 64;
+                if (onScreen) {
+                    engine.addScreenShake?.(0.25);
+                }
+            }
+            return true;
+        }
 
         case "playSound":
             if (!engine) {

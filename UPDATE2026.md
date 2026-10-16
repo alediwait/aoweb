@@ -15,7 +15,20 @@
 > + impacto de llegada, fallback legacy si no hay manager) y
 > `rendering/entityOverlays.ts` (usa V2 automáticamente + helpers
 > `renderFireLoop/renderImpactBurstAtTile/renderImpactBurstAtWorld/killParticleLoop/getParticleStats`).
-> Debug: `window.__aowebFX` (stats) y `?fxStress=N`. Pendiente de Fase 1:
+> Debug: `window.__aowebFX` (stats) y `?fxStress=N`. **Meditación (16-oct-2026):**
+> aura GPU implementada sin cambio de protocolo — `entityOverlays.ts` mapea
+> fxGrh 4/5/6/16/34 → loops `meditate-aura/rise/spark` (`fx/presets.ts`) con
+> escala 0.7/0.85/1.0/1.25/1.5, anclados a la entidad y liberados en
+> `clearEntityFX`/destroy. **Crítico + shake + level-up (16-oct-2026):**
+> `server/src/crit.ts` (5% base, ×1.5 físico / ×1.4 magia, solo si acierta,
+> atacantes PJ en `userDmgUser/userDmgNpc/userSpellUser/userSpellNpc`) con
+> paquete nuevo `critHit` (id 82) + `SND_NIVEL` al subir; cliente: texto
+> dorado `floatingCrit`, burst+flash, screen shake por trauma en
+> `Engine.updateCamera` (0.55 propio / 0.25 ajeno visible, respeta
+> `prefers-reduced-motion` + `localStorage aoweb-screen-shake`), y rayo
+> divino `divine-ray` + burst `levelup` al detectar flanco ascendente en
+> `actMyLevel` (sin zoom: escalar el stage rompería el hit-test de clicks).
+> Pendiente de Fase 1:
 > cablear antorchas/fogatas del mapa a `renderFireLoop` y QA de FPS en
 > dispositivo real.
 

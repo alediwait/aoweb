@@ -331,6 +331,7 @@ export type HandleProtocolApi = {
         client: RuntimeClient,
     ) => void;
     playSound: (idUser: EntityId, idSound: number, client: RuntimeClient) => void;
+    critHit: (targetId: EntityId, attackerId: EntityId, dmg: number, kind: number, client: RuntimeClient) => void;
     updateMana: (mana: number, client: RuntimeClient) => void;
     legacyUpdateMana: (mana: number, client: RuntimeClient) => void;
     updateAgilidad: (agilidad: number, buffSecondsRemaining: number, client: RuntimeClient) => void;
@@ -949,6 +950,15 @@ const handleServer: HandleProtocolApi = {
         pkg.setPackageID(pkg.clientPacketID.playSound);
         pkg.writeDouble(_idUser);
         pkg.writeShort(idSound);
+        socket.send(client);
+    },
+
+    critHit(targetId, attackerId, dmg, kind, client) {
+        pkg.setPackageID(pkg.clientPacketID.critHit);
+        pkg.writeDouble(targetId);
+        pkg.writeDouble(attackerId);
+        pkg.writeInt(Math.max(0, Math.floor(Number(dmg) || 0)));
+        pkg.writeByte(kind === 1 ? 1 : 0);
         socket.send(client);
     },
 

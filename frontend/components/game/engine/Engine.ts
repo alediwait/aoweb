@@ -88,6 +88,7 @@ import {
 import { FXManager } from "../rendering/fx/FXManager";
 import {
     detectFXQuality,
+    detectScreenShakeEnabled,
     stepQualityDown,
     stepQualityUp,
     type FXQualityLevel,
@@ -628,6 +629,21 @@ export class Engine {
     private fxLastQualityCheckAt = 0;
     private fxUpscaleStreak = 0;
     private fxStressDone = false;
+    // Screen shake por trauma (críticos): 0 = quieto, 1 = máximo.
+    // Se suma como offset a la cámara en updateCamera y decae por frame.
+    shakeTrauma = 0;
+    screenShakeEnabled = detectScreenShakeEnabled();
+
+    /** Suma trauma de shake (0-1, con clamp). Sin efecto si está desactivado. */
+    addScreenShake(amount: number): void {
+        if (!this.screenShakeEnabled || this.isDestroyed) {
+            return;
+        }
+        this.shakeTrauma = Math.max(
+            0,
+            Math.min(1, this.shakeTrauma + Math.max(0, amount)),
+        );
+    }
     dialogBubbleTicker?: () => void;
     fpsTicker?: () => void;
     movementCheckTimeoutId: number | null = null;
@@ -2326,9 +2342,30 @@ export class Engine {
             playerWorldY +
             cameraOffsetY;
 
+        // Screen shake: offset rotativo con decaimiento cuadrático.
+        // No toca zoom ni capas: solo desplaza la cámara (0 draw calls).
+        let shakeOffsetX = 0;
+        let shakeOffsetY = 0;
+        if (this.screenShakeEnabled && this.shakeTrauma > 0) {
+            const shake = this.shakeTrauma * this.shakeTrauma;
+            const t = performance.now() / 1000;
+            shakeOffsetX =
+                shake *
+                10 *
+                (Math.sin(t * 91.7) * 0.6 + Math.sin(t * 47.3) * 0.4);
+            shakeOffsetY =
+                shake *
+                10 *
+                (Math.cos(t * 83.1) * 0.6 + Math.cos(t * 59.7) * 0.4);
+            this.shakeTrauma = Math.max(
+                0,
+                this.shakeTrauma - this.delta / 350,
+            );
+        }
+
         // Direct camera positioning (no smoothing - engine.js updates immediately)
-        this.mapContainer.x = targetCameraX;
-        this.mapContainer.y = targetCameraY;
+        this.mapContainer.x = Math.round(targetCameraX + shakeOffsetX);
+        this.mapContainer.y = Math.round(targetCameraY + shakeOffsetY);
 
         // Round camera position to whole pixels to prevent flickering
         this.mapContainer.x = Math.round(this.mapContainer.x);

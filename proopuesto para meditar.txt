@@ -1,0 +1,51 @@
+Análisis: Meditación mística + Críticos con Screen Shake
+Base: relevamiento previo del motor + verificación en server/src/game.ts, vars.ts, frontend/.../entityOverlays.ts, Engine.ts, incomingUiPackets.ts.
+
+1. Efecto místico de meditación con partículas
+Estado actual: accionMeditar (server/src/game.ts:9274) asigna un FX por tier de nivel — vars.meditacion (server/src/vars.ts:117): chica 4 / mediana 5 / grande 6 / xgrande 16 / xxgrande 34 — y lo emite con animFX al área; el tick (server/src/server.ts:505) regenera 6% de maná hasta llenar o hasta que cualquier acción lo corta (animFX 0). En cliente esos 5 IDs son exactamente PERSISTENT_ENTITY_FX_IDS (MapRendererCore.tsx:286): un solo AnimatedSprite en loop, alpha 0.75. O sea: hoy meditar = sprite-sheet estático.
+
+Viabilidad: alta, sin cambiar protocolo. El cliente ya distingue los 5 tiers; basta mapear fxGrh → preset + escala en la capa que intercepta animFX.
+
+Diseño propuesto (3 capas compuestas, todo con el FXManager existente):
+
+Capa	Emisor	Sensación
+Columna ascendente	loop meditate-rise: ADD, 20/s, vel Y −50px/s, violeta→cian, vida 0.9s	maná subiendo
+Orbe denso pegado al cuerpo	loop meditate-aura: ADD, 12/s, radio spawn 14px, dorado pálido + glow pulsante	concentración
+Destellos arcanos	loop meditate-spark: SPARK pool, 6/s, flicker 0.8, trayectorias cortas aleatorias	energía pura
+Tier por fxGrh: 4→scale 0.7, 5→0.85, 6→1.0, 16→1.25, 34→1.5 (scale multiplica spawnRate, tamaño y halo — el loop acepta opts.scale, ya implementado).
+
+Intercepción (solo frontend):
+
+Alta: rendering/entityOverlays.ts → en renderEntityFX, si graphicId ∈ {4,5,6,16,34} además del sprite legacy llamar fx.loop(preset, getPos) con getPos = () => container de la entidad (vía el getEntityContainer ya inyectado en options; devuelve x/y en coords de mundo, el overlay sigue a cámara solo). Guardar handles en Map<entityId, number[]>.
+Baja: clearEntityFX (mismo archivo, hoy borra 1 sprite) → fx.kill() de esos handles. Cubre los 3 cortes del servidor: toggle manual, acción cualquiera y maná lleno (todos emiten animFX 0 o re-FX).
+Convivencia: mantener el sprite legacy debajo (compatibilidad visual) o atenuarlo a alpha 0.35 cuando el aura GPU está activa; quitarlo del todo en Fase 3.
+Rendimiento: 1 meditador ≈ 38 partículas vivas + 1 glow (3 draw calls compartidas globales). 5 meditadores en pantalla ≈ 200 partículas, ~13% del budget ALTO (1500). Culling ya existe: fuera de viewport no spawnea. Sin costo adicional de red (0 paquetes nuevos).
+
+2. Crítico universal 5% + Screen Shake
+Estado actual: no hay críticos (solo apuñalar por clase, game.ts:356-410). El daño físico nace en calcularDmg (game.ts:7569) y el mágico en applyMagicBonuses (game.ts:737); se aplican en 4 puntos: userDmgUser (~7946), userDmgNpc (~7694), userSpellNpc (7018), userSpellUser (7184). El feedback viaja por 3 canales ya cableados: emitCharacterFxToUserArea(COMBAT_HIT_FX_ID) + console("...por N", "red", 1, ...) a atacante/víctima + playSound(SND_IMPACTO) al área. El número rojo flotante que ve el jugador sale de ese console (el cliente lo eleva a bubble floatingCombat si es numérico rojo). No existe screen shake; la cámara (Engine.updateCamera, Engine.ts:2194) fija posiciones absolutas sin smoothing — punto ideal de inyección.
+
+Fórmula propuesta (servidor, 1 función pura nueva server/src/combat/crit.ts):
+
+critChance = 5 + agiBonusDR + bonusEquipoPct;   // clamp 5–30
+isCrit = roll(1,100) <= critChance;             // solo si el golpe ACERTÓ
+dmgCritFisico = dmg * 1.5;  dmgCritMagia = dmg * 1.4;
+Se llama en los 4 puntos de aplicación, después del hit y antes de la absorción (el crítico escala el daño base, la armadura/resistencia mitiga normal — evita one-shots a tanques). 5% base vale para min_hit/max_hit y hechizos por igual; apuñalar no acumula (se queda el mayor, como definió UPDATE2026 §3.2.2).
+
+Canal al cliente: hace falta 1 paquete nuevo — critHit { targetId, dmg, kind: 'fisico'|'magia' } emitido al área junto al console existente (compat: clientes viejos lo ignoran, siguen viendo el número rojo). No reusar el texto del console como señal: es frágil (i18n, formato por parte del cuerpo).
+
+Feedback en cliente (incomingUiPackets.ts caso nuevo → helpers existentes):
+
+Texto flotante dorado y grande (¡247! con borde) sobre targetId — reutilizar showDialogBubble con variante nueva floatingCrit (500→900ms, escala 1.3).
+fx.burst('impact-fire' | 'impact-physical', x, y) + fx.flash() en la víctima (transitorio <600ms, ~20 partículas).
+Screen shake por trauma: shakeTrauma = min(1, trauma + 0.45) (crítico propio/enemigo cercano 0.45, lejano escala por distancia, ajeno 0); cada frame en updateCamera: offset = trauma² * 10px * (ruido), trauma -= dt/350ms. Se suma a mapContainer/roof/entityFX/dialog (los 4 ya se mueven juntos en updateCamera:2231-2258, un solo punto de edición). Sin shake si el evento es fuera de viewport o si el usuario activa "reducir movimiento" (toggle en opciones, respeta prefers-reduced-motion).
+Sonido: SND_IMPACTO con pitch/volumen + (o playSound con id dedicado si hay asset).
+Rendimiento: el shake es matemática de cámara — 0 draw calls, 0 partículas. El burst de crítico vive <600ms y el budget global con backpressure (FXManager.update ya dropea/reduce si supera 1500/900/400) absorbe ráfagas de 5v5 sin tocar el loop. Costo servidor: 1 random + 1 paquete/área solo el 5% de los golpes.
+
+3. Resumen de arquitectura
+Pieza	Dónde	Cambio	Red
+Aura meditación	entityOverlays.ts (renderEntityFX/clearEntityFX) + 3 presets en fx/presets.ts	Solo frontend	Ninguno
+Roll crítico	server/src/combat/crit.ts nuevo, llamado en 4 userDmg*/userSpell*	Solo servidor, tras flag COMBAT_CRIT	1 paquete critHit al área (5% de golpes)
+Texto crítico	incomingUiPackets.ts + variante floatingCrit	Solo frontend	—
+Burst/flash crítico	FXManager.burst/flash existentes	Reuso, 0 código nuevo de motor	—
+Screen shake	Engine.updateCamera (+ campo shakeTrauma, + toggle accesibilidad)	~20 líneas	—
+Orden sugerido: 1) shake + burst con trigger temporal por console (1 día, testeable sin servidor), 2) aura de meditación (2–3 días, incluye presets y QA ?fxStress), 3) crit.ts + paquete critHit con flag y paridad de TTK ±10% antes de activar global.

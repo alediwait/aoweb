@@ -97,6 +97,14 @@ export type IncomingPacketHandlerContext = {
     upsertSpell: (payload: any) => void;
     clearTargetingMode: () => void;
     showDialogBubble: (id: number, msg: string, color?: string) => void;
+    showCritText: (engine: any, entityId: number, text: string) => void;
+    playLevelUpAt: (engine: any, entityId: number) => boolean;
+    renderImpactBurstAtWorld: (
+        engine: any,
+        worldX: number,
+        worldY: number,
+        presetId?: string,
+    ) => void;
     onGlobalNotice?:
         | ((notice: { text: string; durationMs: number }) => void)
         | undefined;

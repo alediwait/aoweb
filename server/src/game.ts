@@ -58,6 +58,7 @@ const crafting = require("./crafting");
 const smelting = require("./smelting");
 const mapInstanceManager = require("./mapInstanceManager");
 const balance = require("./balance");
+const crit = require("./crit");
 
 const getPotionRecoveryAmount = (maxStat: number, percentage: number | undefined, fixedAmount: number): number => {
     const recoveryPercentage = Number(percentage ?? 0);
@@ -1105,6 +1106,47 @@ function emitNpcFxToArea(npc: GameNpc, fxId: number) {
             }
 
             handleProtocol.animFX(npc.id, fxId, targetClient);
+        });
+    });
+}
+
+function broadcastCritHitToUserArea(
+    targetUserId: EntityId,
+    attackerId: EntityId,
+    dmg: number,
+    kind: number,
+) {
+    loopAreaByUserId(targetUserId, function (target: AreaTarget) {
+        if (target.isNpc) {
+            return;
+        }
+
+        const targetClient = getClientById(target.id);
+        if (!targetClient) {
+            return;
+        }
+
+        if (!canReceiveCharacterEvent(target.id, attackerId)) {
+            return;
+        }
+
+        handleProtocol.critHit(targetUserId, attackerId, dmg, kind, targetClient);
+    });
+}
+
+function broadcastCritHitToNpcArea(
+    npc: GameNpc,
+    attackerId: EntityId,
+    dmg: number,
+    kind: number,
+) {
+    game.loopAreaPos(npc.map, npc.pos, function (target: GameCharacter) {
+        withUserClient(target.id, (targetClient) => {
+            if (!canReceiveCharacterEvent(target.id, attackerId)) {
+                return;
+            }
+
+            handleProtocol.critHit(npc.id, attackerId, dmg, kind, targetClient);
         });
     });
 }
@@ -6892,6 +6934,7 @@ function Game(this: GameApi) {
                 handleProtocol.console("¡Tu golpe mínimo aumento en " + aumentoHIT + " puntos!", "red", 1, 0, client);
 
                 handleProtocol.actMyLevel(idUser, client);
+                handleProtocol.playSound(idUser, vars.arSounds.SND_NIVEL, client);
                 unequipRestrictedNewbieItems(user, client);
             }
 
@@ -7042,6 +7085,7 @@ function Game(this: GameApi) {
 
             let dmg = 0;
             let spellEffect: "Paraliza" | "Inmoviliza" | null = null;
+            let isCrit = false;
 
             if (isHostileSpell) {
                 markNpcAggressor(idNpc, idUser);
@@ -7115,6 +7159,11 @@ function Game(this: GameApi) {
                         dmg = 1;
                     }
 
+                    if (crit.rollCrit()) {
+                        isCrit = true;
+                        dmg = crit.applyCritMultiplier(dmg, crit.CRIT_KIND_SPELL);
+                    }
+
                     npc.hp -= dmg;
                 }
             }
@@ -7139,6 +7188,19 @@ function Game(this: GameApi) {
                         userClient,
                     );
                 });
+
+                if (isCrit) {
+                    broadcastCritHitToNpcArea(npc, idUser, dmg, crit.CRIT_KIND_SPELL);
+                    withUserClient(idUser, (userClient) => {
+                        handleProtocol.console(
+                            "¡Crítico mágico a " + npc.nameCharacter + " por " + dmg + "!",
+                            "red",
+                            1,
+                            0,
+                            userClient,
+                        );
+                    });
+                }
 
                 game.loopAreaPos(npc.map, npc.pos, function (target: GameCharacter) {
                     withUserClient(target.id, (targetClient) => {
@@ -7311,6 +7373,7 @@ function Game(this: GameApi) {
             }
 
             let dmg = 0;
+            let isCrit = false;
             let spellEffect:
                 | "Paraliza"
                 | "Inmoviliza"
@@ -7465,6 +7528,11 @@ function Game(this: GameApi) {
                         dmg = 1;
                     }
 
+                    if (crit.rollCrit()) {
+                        isCrit = true;
+                        dmg = crit.applyCritMultiplier(dmg, crit.CRIT_KIND_SPELL);
+                    }
+
                     userAttacked.hp -= dmg;
                 } else if (datSpell.subeAg === 1) {
                     withUserClient(idUserAttacked, (targetClient) => {
@@ -7523,6 +7591,22 @@ function Game(this: GameApi) {
                         targetClient,
                     );
                 });
+
+                if (isCrit) {
+                    broadcastCritHitToUserArea(idUserAttacked, idUser, dmg, crit.CRIT_KIND_SPELL);
+                    withUserClient(idUser, (userClient) => {
+                        handleProtocol.console("¡Crítico mágico por " + dmg + "!", "red", 1, 0, userClient);
+                    });
+                    withUserClient(idUserAttacked, (targetClient) => {
+                        handleProtocol.console(
+                            "¡" + user.nameCharacter + " te ha hecho un crítico mágico por " + dmg + "!",
+                            "red",
+                            1,
+                            0,
+                            targetClient,
+                        );
+                    });
+                }
             } else if (dmg < 0) {
                 withUserClient(idUser, (userClient) => {
                     handleProtocol.console(
@@ -7657,6 +7741,7 @@ function Game(this: GameApi) {
                 const isDragonSlayerHit =
                     isDragonSlayerSword(weaponItemId) && Number(npc.npcType ?? 0) === Number(vars.npcType.dragon);
                 let dmg = game.calcularDmg(idUser);
+                let isCrit = false;
 
                 if (isDragonSlayerHit) {
                     dmg = Math.max(1, npc.hp);
@@ -7680,6 +7765,11 @@ function Game(this: GameApi) {
 
                     if (dmg < 1) {
                         dmg = 1;
+                    }
+
+                    if (crit.rollCrit()) {
+                        isCrit = true;
+                        dmg = crit.applyCritMultiplier(dmg, crit.CRIT_KIND_MELEE);
                     }
 
                     npc.hp -= dmg;
@@ -7717,6 +7807,19 @@ function Game(this: GameApi) {
                             userClient,
                         );
                     });
+
+                    if (isCrit) {
+                        broadcastCritHitToNpcArea(npc, idUser, dmg, crit.CRIT_KIND_MELEE);
+                        withUserClient(idUser, (userClient) => {
+                            handleProtocol.console(
+                                "¡Golpe crítico a " + npc.nameCharacter + " por " + dmg + "!",
+                                "red",
+                                1,
+                                0,
+                                userClient,
+                            );
+                        });
+                    }
                 }
 
                 game.loopAreaPos(npc.map, npc.pos, function (target: GameCharacter) {
@@ -7856,6 +7959,7 @@ function Game(this: GameApi) {
 
             let dmg = 0;
             let attackMissed = false;
+            let isCrit = false;
             let stabResult: StabResult = {
                 stabbed: false,
                 extraDamage: 0,
@@ -7933,6 +8037,11 @@ function Game(this: GameApi) {
 
                 if (dmg < 1) {
                     dmg = 1;
+                }
+
+                if (crit.rollCrit()) {
+                    isCrit = true;
+                    dmg = crit.applyCritMultiplier(dmg, crit.CRIT_KIND_MELEE);
                 }
 
                 userAttacked.hp -= dmg;
@@ -8123,6 +8232,22 @@ function Game(this: GameApi) {
                         }
                     }
                 });
+
+                if (isCrit) {
+                    broadcastCritHitToUserArea(idUserAttacked, idUser, dmg, crit.CRIT_KIND_MELEE);
+                    withUserClient(idUser, (userClient) => {
+                        handleProtocol.console("¡Golpe crítico por " + dmg + "!", "red", 1, 0, userClient);
+                    });
+                    withUserClient(idUserAttacked, (targetClient) => {
+                        handleProtocol.console(
+                            "¡" + user.nameCharacter + " te ha hecho un golpe crítico por " + dmg + "!",
+                            "red",
+                            1,
+                            0,
+                            targetClient,
+                        );
+                    });
+                }
             } else {
                 let rechazo = false;
 
