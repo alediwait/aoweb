@@ -1,0 +1,26 @@
+[
+  {
+    "id": "tutorial_001",
+    "title": "First Steps",
+    "description": "Speak to the Elder in the village square.",
+    "prerequisites": [],
+    "reward": {
+      "xp": 100,
+      "item_id": "basic_key"
+    },
+    "quest_giver_npc_id": "N001"
+  },
+  {
+    "id": "rescue_002",
+    "title": "The Missing Goods",
+    "description": "Investigate the forest and bring back the lost goods.",
+    "prerequisites": [
+      "tutorial_001"
+    ],
+    "reward": {
+      "xp": 250,
+      "gold": 50
+    },
+    "quest_giver_npc_id": "N001"
+  }
+]

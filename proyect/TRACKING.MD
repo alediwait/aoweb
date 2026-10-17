@@ -1,0 +1,1 @@
+Steps to implement the basic state tracking (e.g., updating the player's inventory upon quest completion).
