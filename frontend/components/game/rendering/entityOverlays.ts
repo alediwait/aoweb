@@ -39,52 +39,52 @@ interface MeditationTier {
 
 const MEDITATION_TIERS: Record<number, MeditationTier> = {
     4: {
-        scale: 0.7,
+        scale: 0.5,
         colors: {
-            orbit: { start: 0xcfeaff, end: 0x38b6ff },
-            inner: { start: 0xffffff, end: 0x6ac8ff },
-            rise: { start: 0x9adcff, end: 0x2f9dff },
-            spark: { start: 0xffffff, end: 0x6ac8ff },
+            orbit: { start: 0x85caff, end: 0x38b6ff },
+            inner: { start: 0xadf0ff, end: 0x6ac8ff },
+            rise:  { start: 0x61bbff, end: 0x2f9dff },
+            spark: { start: 0xa1efff, end: 0x6ac8ff },
         },
         lightning: false,
     },
     5: {
-        scale: 0.85,
+        scale: 0.7,
         colors: {
-            orbit: { start: 0xddc2ff, end: 0x7a3cff },
-            inner: { start: 0xffffff, end: 0x9a6bff },
-            rise: { start: 0xc9a6ff, end: 0x5a2bff },
-            spark: { start: 0xffffff, end: 0x9a6bff },
+            orbit: { start: 0xb380ff, end: 0x7a3cff },
+            inner: { start: 0xd6b3ff, end: 0x9a6bff },
+            rise:  { start: 0x9e54ff, end: 0x5a2bff },
+            spark: { start: 0xe0ccff, end: 0x9a6bff },
         },
         lightning: false,
     },
     6: {
         scale: 1.0,
         colors: {
-            orbit: { start: 0xffc2ec, end: 0xc01aff },
-            inner: { start: 0xffffff, end: 0xff5cd0 },
-            rise: { start: 0xff9ae2, end: 0x8a0aff },
-            spark: { start: 0xffffff, end: 0xff5cd0 },
+            orbit: { start: 0xff80dc, end: 0xc01aff },
+            inner: { start: 0xffb3f0, end: 0xff5cd0 },
+            rise:  { start: 0xff4de4, end: 0x8a0aff },
+            spark: { start: 0xffcceb, end: 0xff5cd0 },
         },
         lightning: false,
     },
     16: {
-        scale: 1.25,
+        scale: 1.45,
         colors: {
-            orbit: { start: 0xfff3c0, end: 0xff9a2a },
-            inner: { start: 0xffffff, end: 0xffb84d },
-            rise: { start: 0xffe08a, end: 0xff6a00 },
-            spark: { start: 0xffffff, end: 0xffb84d },
+            orbit: { start: 0xffd266, end: 0xff9a2a },
+            inner: { start: 0xffe699, end: 0xffb84d },
+            rise:  { start: 0xffbe33, end: 0xff6a00 },
+            spark: { start: 0xfff0b3, end: 0xffb84d },
         },
         lightning: false,
     },
     34: {
-        scale: 1.5,
+        scale: 1.7,
         colors: {
-            orbit: { start: 0xffffff, end: 0xffd34d },
-            inner: { start: 0xffffff, end: 0xffe08a },
-            rise: { start: 0xfffbe8, end: 0xffb800 },
-            spark: { start: 0xffffff, end: 0xffe08a },
+            orbit: { start: 0xffe680, end: 0xffd34d },
+            inner: { start: 0xfff0b3, end: 0xffe08a },
+            rise:  { start: 0xffcc33, end: 0xffb800 },
+            spark: { start: 0xfff5cc, end: 0xffe08a },
         },
         lightning: true,
     },
@@ -97,7 +97,7 @@ const MEDITATION_LOOP_DEFS = [
     { preset: "meditate-spark", colorsKey: "spark" },
 ] as const;
 
-const MEDITATION_BOLT_INTERVAL_MS = 650;
+const MEDITATION_BOLT_INTERVAL_MS = 950;
 
 // Loops + intervalo de rayos por entidad, sin tocar la clase Engine.
 interface MeditationState {

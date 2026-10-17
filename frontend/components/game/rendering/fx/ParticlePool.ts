@@ -182,7 +182,6 @@ export class ParticlePool {
         particle.scaleY = baseScale;
         particle.rotation = s.rotation;
         particle.alpha = s.alphaStart;
-        particle.tint = s.colorStart;
         // Se guarda la posición base en x/y del propio Particle y se
         // integra escribiendo sobre él (menos arrays que mantener).
         particle.anchorX = 0.5;

@@ -290,7 +290,8 @@ export function createSpellProjectileVisual(
                         particleIndex === 0
                             ? visualConfig.trailColor
                             : visualConfig.ringColor;
-                    const useSparkShape = Math.random() < 0.65;
+                    const isFire = /fuego|llama|apocal|ira de dios|infiern|elemental de fuego/i.test(spellData?.name ?? "");
+                    const useSparkShape = isFire ? false : (Math.random() < 0.65);
                     const particle = acquireSpellProjectileParticle(
                         useSparkShape ? "spark" : "orb",
                         particleColor,
@@ -522,11 +523,13 @@ export function createSpellProjectileVisualFX(
                 return;
             }
             const haystack = `${spellData?.name ?? ""} ${spellData?.desc ?? ""}`;
-            const isElectric = /eléctr|rayo|relámp|tormenta|descarga/i.test(haystack);
             const isFire =
                 /fuego|llama|apocal|ira de dios|infiern|elemental de fuego/i.test(
                     haystack,
                 );
+            const isElectric = !isFire && /eléctr|rayo|relámp|tormenta|descarga/i.test(
+                haystack,
+            );
             manager.flash(
                 lastWorldX,
                 lastWorldY,
