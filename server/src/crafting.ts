@@ -435,6 +435,7 @@ const crafting: CraftingApi = {
 
         game.putItemToInv(user.id, recipe.itemId, safeAmount);
         await game.persistCharacterItemsById(user.id);
+        require("./integration/questIntegration").emitItemCraftedEvent(user.id, recipe.itemId, safeAmount);
 
         const craftedObj = vars.datObj[recipe.itemId] as DataObject | undefined;
         handleProtocol.console(`Has fabricado ${safeAmount} ${craftedObj?.name ?? "objeto"}.`, "#86efac", 0, 0, ws);

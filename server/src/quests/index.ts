@@ -25,6 +25,7 @@ import {
     isQuestCompleted,
     isQuestTurnedIn,
     resetAllQuestsForPlayer,
+    restorePlayerQuests,
     resetQuest,
     startQuest,
     turnInQuest,
@@ -69,6 +70,7 @@ export type QuestsApi = {
     abandonQuest: (playerId: EntityId, questId: string) => boolean;
     resetQuest: (playerId: EntityId, questId: string) => boolean;
     resetAllQuestsForPlayer: (playerId: EntityId) => void;
+    restorePlayerQuests: (playerId: EntityId, states: PlayerQuestState[]) => void;
 
     // Quest status checks
     isQuestActive: (playerId: EntityId, questId: string) => boolean;
@@ -118,6 +120,7 @@ quests.failQuest = failQuest;
 quests.abandonQuest = abandonQuest;
 quests.resetQuest = resetQuest;
 quests.resetAllQuestsForPlayer = resetAllQuestsForPlayer;
+quests.restorePlayerQuests = restorePlayerQuests;
 
 quests.isQuestActive = isQuestActive;
 quests.isQuestCompleted = isQuestCompleted;

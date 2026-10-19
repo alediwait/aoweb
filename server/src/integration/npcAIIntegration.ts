@@ -37,12 +37,12 @@ export function handleNpcAttackedByPlayer(npcId: EntityId, attackerId: EntityId)
     }
 
     if (state.behavior === "defensive" && state.aggroOnAttack) {
-        npcAI.setNpcAggro(npcId, attackerId);
+        npcAI.setNpcAggro(npcId, attackerId, "player");
         return;
     }
 
     if (state.behavior === "aggressive") {
-        npcAI.setNpcAggro(npcId, attackerId);
+        npcAI.setNpcAggro(npcId, attackerId, "player");
     }
 }
 

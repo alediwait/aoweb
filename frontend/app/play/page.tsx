@@ -23,6 +23,7 @@ import CharacterStatsModal from "../../components/CharacterStatsModal";
 import CraftingModal from "../../components/CraftingModal";
 import MarketModal from "../../components/MarketModal";
 import RetosModal from "../../components/RetosModal";
+import QuestJournal, { type QuestJournalEntry } from "../../components/game/QuestJournal";
 import TradeModal from "../../components/TradeModal";
 import {
     createEmptyMacros,
@@ -696,6 +697,7 @@ function HomeContent() {
     const [activeConnection, setActiveConnection] =
         useState<ConnectionForm | null>(null);
     const [hud, setHud] = useState<PlayerHudState | null>(null);
+    const [questJournal, setQuestJournal] = useState<QuestJournalEntry[]>([]);
     const [equipRequest, setEquipRequest] = useState<EquipRequest | null>(null);
     const [useItemClickRequest, setUseItemClickRequest] =
         useState<UseRequest | null>(null);
@@ -1242,6 +1244,7 @@ function HomeContent() {
 
         autoConnectKeyRef.current = nextKey;
         setHud(null);
+        setQuestJournal([]);
         setChatEntriesByTab(createEmptyChatEntriesByTab());
         setStatus({
             connected: false,
@@ -1711,6 +1714,16 @@ function HomeContent() {
     const appendConsoleEntry = useCallback(
         (entry: Omit<ConsoleEntry, "id">) => {
             if (entry.source === "console") {
+                if (entry.text.startsWith("__QUEST_JOURNAL__")) {
+                    try {
+                        const payload = JSON.parse(entry.text.slice("__QUEST_JOURNAL__".length));
+                        if (Array.isArray(payload)) setQuestJournal(payload as QuestJournalEntry[]);
+                    } catch {
+                        // Ignore malformed quest updates; ordinary console messages remain unaffected.
+                    }
+                    return;
+                }
+
                 const challengeOverlayMatch = entry.text.match(
                     CHALLENGE_OVERLAY_PATTERN,
                 );
@@ -2647,9 +2660,25 @@ function HomeContent() {
                 }}
             >
                 <div
-                    className="pointer-events-auto flex flex-col"
+                    className="pointer-events-auto relative flex flex-col"
                     style={{ gap: `${HUD_GAP}px` }}
                 >
+                    {!arenaMode && !isFullscreen && viewport.width > 1480 ? (
+                        <div
+                            className="pointer-events-none absolute -left-[312px] z-10 flex items-center"
+                            style={{
+                                top: isDesktopConsoleLayout ? `${DESKTOP_CONSOLE_HEIGHT + HUD_GAP}px` : 0,
+                                height: `${hudLayout.canvasHeight ?? CANVAS_BASE_HEIGHT}px`,
+                            }}
+                        >
+                            <QuestJournal
+                                quests={questJournal}
+                                connected={status.connected}
+                                onCommand={sendChatMessage}
+                            />
+                        </div>
+                    ) : null}
+
                     {isDesktopConsoleLayout ? (
                         <ScaledHudFrame
                             scale={hudScale}

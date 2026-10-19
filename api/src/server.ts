@@ -118,6 +118,11 @@ import {
     listUserOnlineStats,
 } from "./repositories/userOnlineStats";
 import { createChallengeHistory } from "./repositories/challenges";
+import {
+    getQuestsForCharacter,
+    saveQuestForCharacter,
+    deleteQuestForCharacter,
+} from "./controllers/questsInternal";
 
 const app = express();
 const SLOW_REQUEST_LOG_THRESHOLD_MS = 2000;
@@ -232,10 +237,34 @@ async function ensurePgStatStatements(): Promise<void> {
     }
 }
 
+async function ensureCharacterQuestsTable(): Promise<void> {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS character_quests (
+            character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+            quest_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('available', 'active', 'completed', 'turned_in', 'failed')),
+            objectives JSONB NOT NULL DEFAULT '[]'::jsonb,
+            started_at TIMESTAMPTZ,
+            expires_at TIMESTAMPTZ,
+            completed_at TIMESTAMPTZ,
+            turned_in_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (character_id, quest_id)
+        )
+    `);
+    await pool.query(
+        "CREATE INDEX IF NOT EXISTS idx_character_quests_character_id ON character_quests(character_id)",
+    );
+    await pool.query(
+        "CREATE INDEX IF NOT EXISTS idx_character_quests_quest_id ON character_quests(quest_id)",
+    );
+}
+
 async function start(): Promise<void> {
     try {
         await pool.query("SELECT 1");
         console.log("PostgreSQL connected successfully");
+        await ensureCharacterQuestsTable();
         await ensurePgStatStatements();
 
         app.listen(config.port, () => {
@@ -2132,6 +2161,24 @@ app.post(
             });
         }
     },
+);
+
+app.get(
+    "/internal/characters/:characterId/quests",
+    requireAuth,
+    getQuestsForCharacter,
+);
+
+app.put(
+    "/internal/characters/:characterId/quests/:questId",
+    requireAuth,
+    saveQuestForCharacter,
+);
+
+app.delete(
+    "/internal/characters/:characterId/quests/:questId",
+    requireAuth,
+    deleteQuestForCharacter,
 );
 
 app.post(

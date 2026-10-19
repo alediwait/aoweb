@@ -11,8 +11,8 @@ export function installNpcDeathHook(originalFn: MuereNpcFn): MuereNpcFn {
     }
     installed = true;
 
-    return function hookedMuereNpc(idNpc: EntityId): void {
+    return function hookedMuereNpc(this: ThisParameterType<MuereNpcFn>, idNpc: EntityId): void {
         npcAI.removeNpcAIState(idNpc);
-        originalFn(idNpc);
+        originalFn.call(this, idNpc);
     };
 }

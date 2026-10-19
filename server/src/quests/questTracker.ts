@@ -205,6 +205,24 @@ export function resetAllQuestsForPlayer(playerId: EntityId): void {
     playerQuests.delete(String(playerId));
 }
 
+export function restorePlayerQuests(playerId: EntityId, states: PlayerQuestState[]): void {
+    const questMap = new Map<string, PlayerQuestState>();
+    for (const rawState of states) {
+        const definition = getQuestDefinition(rawState.questId);
+        if (!definition || !Array.isArray(rawState.objectives)) continue;
+        const state: PlayerQuestState = {
+            ...rawState,
+            startedAt: rawState.startedAt ? new Date(rawState.startedAt).getTime() : undefined,
+            expiresAt: rawState.expiresAt ? new Date(rawState.expiresAt).getTime() : undefined,
+            completedAt: rawState.completedAt ? new Date(rawState.completedAt).getTime() : undefined,
+            turnedInAt: rawState.turnedInAt ? new Date(rawState.turnedInAt).getTime() : undefined,
+            objectives: rawState.objectives.map((objective) => ({ ...objective })),
+        };
+        questMap.set(state.questId, state);
+    }
+    playerQuests.set(String(playerId), questMap);
+}
+
 export function checkExpiredQuests(playerId: EntityId): string[] {
     const questMap = getPlayerQuestMap(playerId);
     const now = Date.now();

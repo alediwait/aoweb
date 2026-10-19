@@ -8,6 +8,7 @@ const handleProtocol = require("./handleProtocol");
 const balance = require("./balance");
 const challengeManager = require("./challengeManager");
 const funct = require("./functions");
+const questIntegration = require("./integration/questIntegration");
 
 const FACTION_REKILL_WINDOW_MS = 5 * 60 * 1000;
 const recentFactionKills = new Map<string, number>();
@@ -130,6 +131,7 @@ function Respawn(this: any) {
                 if (pjSelected.isNpc) {
                     goldGanado = pjSelected.gold * vars.multiplicadorGold;
                 } else {
+                    questIntegration.emitPlayerKilledEvent(user.id, pjSelected.id, String(pjSelected.faction ?? "none"));
                     if (
                         !challengeCombatDeath &&
                         vars.mapa[pjSelected.map][pjSelected.pos.y][pjSelected.pos.x].trigger != 6

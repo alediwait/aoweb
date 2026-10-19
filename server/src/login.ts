@@ -12,6 +12,7 @@ const arenaManager = require("./arenaManager");
 const mapInstanceManager = require("./mapInstanceManager");
 const balance = require("./balance");
 const safeZone = require("./safeZone");
+const questIntegration = require("./integration/questIntegration");
 const _ = require("lodash");
 
 function normalizeFaction(value: unknown): CharacterFaction {
@@ -851,6 +852,8 @@ function Login(this: LoginApi) {
                     },
                 });
 
+                await questIntegration.loadPlayerQuests(personaje.id, personaje._id);
+
                 const personajeWS = vars.personajes[ws.id];
 
                 if (personajeWS.privileges == 1 || personajeWS.privileges == 2) {
@@ -865,6 +868,7 @@ function Login(this: LoginApi) {
                     handleProtocol.sendMyCharacter(personajeWS);
                     socket.send(ws);
                     sendWelcomeConsoleMessage(ws);
+                    questIntegration.sendQuestJournal(personajeWS.id);
 
                     if (mapLevelDeniedMessage) {
                         handleProtocol.console(mapLevelDeniedMessage, "white", 1, 0, ws);

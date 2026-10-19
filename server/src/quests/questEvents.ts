@@ -1,7 +1,13 @@
 import type { EntityId } from "../types/runtime";
-import type { QuestEvent, QuestProgressCallback, QuestCompletionCallback } from "./questTypes";
+import type { QuestEvent, QuestObjective, QuestProgressCallback, QuestCompletionCallback } from "./questTypes";
 import { getQuestDefinition } from "./questRegistry";
-import { isQuestActive, updateObjectiveProgress, checkExpiredQuests, getPlayerActiveQuests } from "./questTracker";
+import {
+    isQuestActive,
+    updateObjectiveProgress,
+    checkExpiredQuests,
+    getPlayerActiveQuests,
+    getPlayerQuestState,
+} from "./questTracker";
 
 type QuestEventListener = (playerId: EntityId, event: QuestEvent) => void;
 
@@ -10,6 +16,12 @@ const questProgressCallbacks = new Set<QuestProgressCallback>();
 const questCompletionCallbacks = new Set<QuestCompletionCallback>();
 
 export function emitQuestEvent(playerId: EntityId, event: QuestEvent): void {
+    for (const questId of checkExpiredQuests(playerId)) {
+        const state = getPlayerQuestState(playerId, questId);
+        const objective = state?.objectives[0];
+        if (objective && state) notifyProgress(playerId, questId, objective.id, state);
+    }
+
     for (const listener of questEventListeners) {
         try {
             listener(playerId, event);
@@ -18,30 +30,21 @@ export function emitQuestEvent(playerId: EntityId, event: QuestEvent): void {
         }
     }
 
-    switch (event.type) {
-        case "npc_killed":
-            handleKillNpcEvent(playerId, event.npcId, event.npcType);
-            break;
-        case "item_collected":
-            handleItemEvent(playerId, event.itemId, event.amount);
-            break;
-        case "npc_interacted":
-            handleNpcInteractionEvent(playerId, event.npcId, event.npcType);
-            break;
-        case "location_reached":
-            handleLocationReachedEvent(playerId, event.map, event.pos.x, event.pos.y);
-            break;
-        case "player_killed":
-            handlePlayerKilledEvent(playerId);
-            break;
-        case "item_crafted":
-            handleItemEvent(playerId, event.itemId, event.amount);
-            break;
-        default:
-            break;
+    for (const quest of getPlayerActiveQuests(playerId)) {
+        const definition = getQuestDefinition(quest.questId);
+        if (!definition) continue;
+
+        for (const objective of quest.objectives) {
+            if (objective.currentAmount >= objective.requiredAmount) continue;
+            const amount = getObjectiveProgressAmount(objective, event, definition.zoneRestriction);
+            if (amount <= 0) continue;
+
+            const result = updateObjectiveProgress(playerId, quest.questId, objective.id, amount);
+            notifyProgress(playerId, quest.questId, objective.id, result.newState);
+            if (result.questCompleted) notifyCompletion(playerId, quest.questId);
+        }
     }
 
-    checkExpiredQuests(playerId);
 }
 
 export function onQuestEvent(listener: QuestEventListener): () => void {
@@ -59,116 +62,66 @@ export function onQuestCompletion(callback: QuestCompletionCallback): () => void
     return () => questCompletionCallbacks.delete(callback);
 }
 
-function handleKillNpcEvent(playerId: EntityId, npcId: EntityId, npcType: number): void {
-    for (const quest of getPlayerActiveQuests(playerId)) {
-        const definition = getQuestDefinition(quest.questId);
-        if (!definition) {
-            continue;
-        }
-
-        const objective = quest.objectives.find(
-            (obj) =>
-                obj.type === "kill_npc" &&
-                (obj.targetId === npcId || obj.targetId === npcType) &&
-                obj.currentAmount < obj.requiredAmount,
-        );
-
-        if (!objective) {
-            continue;
-        }
-
-        const result = updateObjectiveProgress(playerId, quest.questId, objective.id, 1);
-        notifyProgress(playerId, quest.questId, objective.id, result.newState);
-        if (result.questCompleted) {
-            notifyCompletion(playerId, quest.questId);
-        }
-    }
+function sameId(left: unknown, right: unknown): boolean {
+    return left !== undefined && right !== undefined && String(left) === String(right);
 }
 
-function handleItemEvent(playerId: EntityId, itemId: number, amount: number): void {
-    for (const quest of getPlayerActiveQuests(playerId)) {
-        const objective = quest.objectives.find(
-            (obj) =>
-                (obj.type === "collect_item" || obj.type === "craft_item") &&
-                obj.targetId === itemId &&
-                obj.currentAmount < obj.requiredAmount,
-        );
-
-        if (!objective) {
-            continue;
-        }
-
-        const result = updateObjectiveProgress(playerId, quest.questId, objective.id, amount);
-        notifyProgress(playerId, quest.questId, objective.id, result.newState);
-        if (result.questCompleted) {
-            notifyCompletion(playerId, quest.questId);
-        }
-    }
+function sameName(left: string | undefined, right: string | undefined): boolean {
+    return Boolean(left && right && left.trim().toLocaleLowerCase("es") === right.trim().toLocaleLowerCase("es"));
 }
 
-function handleNpcInteractionEvent(playerId: EntityId, npcId: EntityId, npcType: number): void {
-    for (const quest of getPlayerActiveQuests(playerId)) {
-        const objective = quest.objectives.find(
-            (obj) =>
-                obj.type === "talk_to_npc" &&
-                (obj.targetId === npcId || obj.targetId === npcType) &&
-                obj.currentAmount < obj.requiredAmount,
-        );
-
-        if (!objective) {
-            continue;
-        }
-
-        const result = updateObjectiveProgress(playerId, quest.questId, objective.id, 1);
-        notifyProgress(playerId, quest.questId, objective.id, result.newState);
-        if (result.questCompleted) {
-            notifyCompletion(playerId, quest.questId);
-        }
-    }
-}
-
-function handleLocationReachedEvent(playerId: EntityId, map: number, x: number, y: number): void {
-    for (const quest of getPlayerActiveQuests(playerId)) {
-        const definition = getQuestDefinition(quest.questId);
-        if (!definition) {
-            continue;
-        }
-
-        if (definition.zoneRestriction && !definition.zoneRestriction.includes(map)) {
-            continue;
-        }
-
-        const objective = quest.objectives.find(
-            (obj) => obj.type === "reach_location" && obj.currentAmount < obj.requiredAmount,
-        );
-
-        if (!objective) {
-            continue;
-        }
-
-        const result = updateObjectiveProgress(playerId, quest.questId, objective.id, 1);
-        notifyProgress(playerId, quest.questId, objective.id, result.newState);
-        if (result.questCompleted) {
-            notifyCompletion(playerId, quest.questId);
-        }
-    }
-}
-
-function handlePlayerKilledEvent(playerId: EntityId): void {
-    for (const quest of getPlayerActiveQuests(playerId)) {
-        const objective = quest.objectives.find(
-            (obj) => obj.type === "kill_player" && obj.currentAmount < obj.requiredAmount,
-        );
-
-        if (!objective) {
-            continue;
-        }
-
-        const result = updateObjectiveProgress(playerId, quest.questId, objective.id, 1);
-        notifyProgress(playerId, quest.questId, objective.id, result.newState);
-        if (result.questCompleted) {
-            notifyCompletion(playerId, quest.questId);
-        }
+function getObjectiveProgressAmount(
+    objective: QuestObjective,
+    event: QuestEvent,
+    zoneRestriction?: number[],
+): number {
+    switch (event.type) {
+        case "npc_killed":
+            return objective.type === "kill_npc" &&
+                (!zoneRestriction?.length || zoneRestriction.includes(event.map)) &&
+                (sameName(objective.targetName, event.npcName) ||
+                    (!objective.targetName &&
+                        (sameId(objective.targetId, event.npcId) || sameId(objective.targetId, event.npcType) ||
+                            sameId(objective.targetId, event.npcTemplateId)))) ? 1 : 0;
+        case "item_collected":
+            return objective.type === "collect_item" && sameId(objective.targetId, event.itemId)
+                ? Math.max(0, event.amount) : 0;
+        case "npc_interacted":
+            return objective.type === "talk_to_npc" &&
+                (sameName(objective.targetName, event.npcName) ||
+                    (!objective.targetName &&
+                        (sameId(objective.targetId, event.npcId) || sameId(objective.targetId, event.npcType) ||
+                            sameId(objective.targetId, event.npcTemplateId)))) ? 1 : 0;
+        case "location_reached":
+            return objective.type === "reach_location" &&
+                (!zoneRestriction?.length || zoneRestriction.includes(event.map)) &&
+                (objective.targetPosition
+                    ? objective.targetPosition.map === event.map &&
+                      Math.hypot(event.pos.x - objective.targetPosition.x, event.pos.y - objective.targetPosition.y) <=
+                          (objective.targetPosition.radius ?? 2)
+                    : !objective.targetId || sameId(objective.targetId, event.map)) ? 1 : 0;
+        case "player_killed":
+            return objective.type === "kill_player" &&
+                (!objective.targetId || sameId(objective.targetId, event.victimId)) ? 1 : 0;
+        case "item_crafted":
+            return objective.type === "craft_item" && sameId(objective.targetId, event.itemId)
+                ? Math.max(0, event.amount) : 0;
+        case "item_used":
+            return objective.type === "use_item" && sameId(objective.targetId, event.itemId) ? 1 : 0;
+        case "spell_cast":
+            return objective.type === "spell_cast" && sameId(objective.targetId, event.spellId) ? 1 : 0;
+        case "damage_dealt":
+            return objective.type === "deal_damage" &&
+                (!objective.targetId || sameId(objective.targetId, event.targetId))
+                ? Math.max(0, event.damage) : 0;
+        case "damage_taken":
+            return objective.type === "take_damage" &&
+                (!objective.targetId || sameId(objective.targetId, event.sourceId))
+                ? Math.max(0, event.damage) : 0;
+        case "level_up":
+            return objective.type === "reach_level" && event.newLevel >= Number(objective.targetId ?? 0) ? 1 : 0;
+        case "quest_turned_in":
+            return 0;
     }
 }
 

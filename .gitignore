@@ -8,6 +8,8 @@ coverage/
 test-results/
 playwright-report/
 .opencode/
+strata_setup/
+Strata-data/
 
 .env*
 !.env.example

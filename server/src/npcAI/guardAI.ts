@@ -1,6 +1,5 @@
 import type { EntityId, Position } from "../types/runtime";
 import {
-    type NpcAIBehavior,
     type NpcAIState,
     canNpcCastSpell,
     clearNpcAggro,
@@ -12,6 +11,7 @@ import {
     setNpcBehavior,
     shouldNpcAggroOnCrime,
     shouldNpcFightBack,
+    npcAIBehaviors,
 } from "./npcAI";
 
 export type GuardSpellType = "offensive" | "defensive" | "healing" | "crowd_control";
@@ -117,6 +117,7 @@ export function initializeGuardAI(npcId: EntityId, homePosition: Position): NpcA
         lastSpellCastAt: 0,
         aggroMemoryMs: guardConfig.aggroMemoryMs,
         currentTargetId: null,
+        currentTargetKind: null,
         lastAttackerId: null,
         lastAttackAt: 0,
         homePosition,
@@ -135,7 +136,7 @@ export function handleGuardAttacked(npcId: EntityId, attackerId: EntityId): void
         return;
     }
 
-    setNpcAggro(npcId, attackerId);
+    setNpcAggro(npcId, attackerId, "player");
     alertNearbyGuards(npcId, attackerId);
 }
 
@@ -149,7 +150,7 @@ export function handleGuardCrimeWitnessed(npcId: EntityId, criminalId: EntityId)
         return;
     }
 
-    setNpcAggro(npcId, criminalId);
+    setNpcAggro(npcId, criminalId, "player");
     alertNearbyGuards(npcId, criminalId);
 }
 
@@ -159,7 +160,7 @@ export function handleGuardProtectedTargetAttacked(npcId: EntityId, attackerId: 
         return;
     }
 
-    setNpcAggro(npcId, attackerId);
+    setNpcAggro(npcId, attackerId, "player");
     alertNearbyGuards(npcId, attackerId);
 }
 
@@ -253,6 +254,12 @@ export function processGuardAITick(npcId: EntityId): void {
     const npc = vars.npcs[npcId];
     if (!npc) {
         return;
+    }
+
+    // Call the GuardBehavior strategy tick
+    const strategy = (npcAIBehaviors as any)?.[npcId] ?? npcAIBehaviors.guard;
+    if (strategy) {
+        strategy.tick(npc, state);
     }
 
     const now = Date.now();

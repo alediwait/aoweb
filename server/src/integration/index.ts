@@ -33,9 +33,10 @@ export type IntegrationApi = {
         npcType: number,
         map: number,
         pos: { x: number; y: number },
+        npcTemplateId?: number,
     ) => void;
     emitItemCollectedEvent: (playerId: EntityId, itemId: number, amount: number) => void;
-    emitNpcInteractedEvent: (playerId: EntityId, npcId: EntityId, npcType: number) => void;
+    emitNpcInteractedEvent: (playerId: EntityId, npcId: EntityId, npcType: number, npcTemplateId?: number) => void;
     emitLocationReachedEvent: (playerId: EntityId, map: number, pos: { x: number; y: number }) => void;
     emitPlayerKilledEvent: (playerId: EntityId, victimId: EntityId, victimFaction: string) => void;
     emitItemCraftedEvent: (playerId: EntityId, itemId: number, amount: number) => void;

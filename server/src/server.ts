@@ -191,6 +191,10 @@ const pkg = require("./package") as PackageApi;
 const npcs = require("./npcs") as NpcsApi;
 const runtimeTiming = require("./runtimeTiming");
 const handleProtocol = require("./handleProtocol") as HandleProtocolApi;
+const questIntegration = require("./integration/questIntegration");
+const integrationModule = require("./integration");
+const integration = integrationModule.default ?? integrationModule;
+const { installAllHooks } = require("./hooks");
 
 function handleHttpRequest(request: any, response: any) {
     void request;
@@ -455,6 +459,10 @@ function trackClientActivity(ws: RuntimeClient, packageID: number) {
         LoadCraftingRecipes.initialize(),
         LoadSmeltingRecipes.initialize(),
     ]);
+
+    questIntegration.initializeQuestIntegration();
+
+    installAllHooks();
 
     vars.serverReady = true;
     const endInitialize = Date.now() - startInitialize;
@@ -903,6 +911,8 @@ createDynamicScheduler(
             processPlayerStatusTick(now);
             nextPlayerStatusTickAt = now + vars.timing.playerStatusTickMs;
         }
+
+        integration.processTick();
 
         fishing.processTick(now);
         harvesting.processTick(now);

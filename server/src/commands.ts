@@ -37,6 +37,9 @@ const chatAuditLogger = require("./chatAuditLogger");
 const handleProtocol = require("./handleProtocol") as HandleProtocolApi;
 const login = require("./login");
 const runtimeTiming = require("./runtimeTiming");
+const questIntegration = require("./integration/questIntegration");
+const QuestManager = require("./quests/questManager").QuestManager;
+const quests = require("./quests").default;
 const balance = require("./balance");
 const mapInstanceManager = require("./mapInstanceManager");
 const _ = require("lodash");
@@ -2118,6 +2121,46 @@ const command: CommandApi = {
             const userInSafeZone = isInSafeZone(user);
 
             switch (commandText) {
+                case "/quest": {
+                    const [action = "list", questId = ""] = nextText.trim().split(/\s+/, 2);
+
+                    if (action === "list") {
+                        for (const expiredQuestId of quests.checkExpiredQuests(clientId)) {
+                            questIntegration.persistPlayerQuestState(clientId, expiredQuestId);
+                        }
+                        questIntegration.sendQuestJournal(clientId);
+                    } else if (action === "accept" && questId) {
+                        const started = QuestManager.startQuest(clientId, questId);
+                        if (!started) {
+                            handleProtocol.console(
+                                "No puedes aceptar esa crónica: revisa el nivel, sus requisitos o si ya está activa.",
+                                "#D9B777", 0, 0, ws as CommandClient,
+                            );
+                        } else {
+                            questIntegration.persistPlayerQuestState(clientId, questId);
+                            handleProtocol.console(`La crónica «${started.name}» queda escrita en tu destino.`, "#D9B777", 0, 0, ws as CommandClient);
+                        }
+                        questIntegration.sendQuestJournal(clientId);
+                    } else if (action === "turnin" && questId) {
+                        const turnedIn = QuestManager.turnInQuest(clientId, questId);
+                        if (!turnedIn) {
+                            handleProtocol.console("La tarea aún no está completa o no puede entregarse.", "#D9B777", 0, 0, ws as CommandClient);
+                        } else {
+                            questIntegration.persistPlayerQuestState(clientId, questId);
+                            handleProtocol.console("La deuda ha sido saldada. La recompensa es tuya.", "#D9B777", 0, 0, ws as CommandClient);
+                        }
+                        questIntegration.sendQuestJournal(clientId);
+                    } else if (action === "abandon" && questId) {
+                        const abandoned = quests.abandonQuest(clientId, questId);
+                        if (abandoned) questIntegration.deletePersistedPlayerQuest(clientId, questId);
+                        handleProtocol.console(abandoned ? "Has renunciado a esta crónica." : "No tienes una crónica activa con ese nombre.", "#D9B777", 0, 0, ws as CommandClient);
+                        questIntegration.sendQuestJournal(clientId);
+                    } else {
+                        handleProtocol.console("Uso: /quest list | /quest accept ID | /quest turnin ID | /quest abandon ID", "#D9B777", 0, 0, ws as CommandClient);
+                    }
+                    break;
+                }
+
                 case "/online":
                     handleProtocol.console(
                         `Usuarios online en PvE: ${vars.usuariosOnline}`,

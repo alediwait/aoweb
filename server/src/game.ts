@@ -58,6 +58,7 @@ const crafting = require("./crafting");
 const smelting = require("./smelting");
 const mapInstanceManager = require("./mapInstanceManager");
 const balance = require("./balance");
+const questIntegration = require("./integration/questIntegration");
 const crit = require("./crit");
 
 const getPotionRecoveryAmount = (maxStat: number, percentage: number | undefined, fixedAmount: number): number => {
@@ -2620,6 +2621,7 @@ export type GameApi = {
     setHiddenSkill: (idUser: EntityId, enabled: boolean) => void;
     closeForce: (idUser: EntityId) => Promise<void>;
     calcularExp: (idUser: EntityId, idNpc: EntityId, dmg: number) => void;
+    grantQuestRewardItem: (idUser: EntityId, itemId: number, amount: number) => boolean;
     distribuirExpRestanteNpc: (idUser: EntityId, idNpc: EntityId) => void;
     distribuirOroNpc: (idUser: EntityId, idNpc: EntityId, totalGold: number) => void;
     markNpcAggressor: (idNpc: EntityId, idAttacker: EntityId) => void;
@@ -3058,6 +3060,12 @@ function markNpcAggressor(idNpc: EntityId, idUser: EntityId) {
     npc.lastAggressedAt = now;
     npc.currentTargetId = idUser;
     npc.currentTargetLockedUntil = now + NPC_TARGET_LOCK_MS;
+
+    // Calls inside this module use the local function directly, so notify NPC
+    // AI here as well as through the exported hook. Summons remain NPC actors.
+    if (!attackerIsSummon && vars.personajes[idUser]) {
+        require("./integration/npcAIIntegration").handleNpcAttackedByPlayer(idNpc, idUser);
+    }
 }
 
 function serializeInventory(record: InventoryRecord): SerializedInventoryItem[] {
@@ -4174,6 +4182,7 @@ function Game(this: GameApi) {
             }
 
             const idItem = item.idItem;
+            const amountBeforeUse = item.cant;
 
             const obj = vars.datObj[idItem];
 
@@ -4406,6 +4415,10 @@ function Game(this: GameApi) {
                         break;
                     }
             }
+
+            if (!user.inv[idPos] || user.inv[idPos].cant < amountBeforeUse) {
+                questIntegration.emitItemUsedEvent(clientId, idItem);
+            }
         } catch (err) {
             funct.dumpError(err);
         }
@@ -4529,6 +4542,7 @@ function Game(this: GameApi) {
                     for (const slot of slots) {
                         handleProtocol.agregarUserInvItem(clientId, slot, ws);
                     }
+                    questIntegration.emitItemCollectedEvent(clientId, item.objIndex, item.amount);
                 }
 
                 unregisterDroppedFloorItem(user.map, user.pos);
@@ -6222,6 +6236,9 @@ function Game(this: GameApi) {
             user.stateVersion = Number(user.stateVersion ?? 0) + 1;
             user.zonaSegura = safeZone.getSafeZoneFlag(user.map, user.pos);
 
+            questIntegration.emitLocationReachedEvent(clientId, user.map, user.pos);
+            questIntegration.syncQuestJournalProximity(clientId);
+
             vars.mapData[user.map][user.pos.y][user.pos.x].id = clientId;
 
             socket.withFlushGroup(ws, () => {
@@ -6934,6 +6951,7 @@ function Game(this: GameApi) {
                 handleProtocol.console("¡Tu golpe mínimo aumento en " + aumentoHIT + " puntos!", "red", 1, 0, client);
 
                 handleProtocol.actMyLevel(idUser, client);
+                questIntegration.emitLevelUpEvent(idUser, user.level);
                 handleProtocol.playSound(idUser, vars.arSounds.SND_NIVEL, client);
                 unequipRestrictedNewbieItems(user, client);
             }
@@ -9928,6 +9946,31 @@ function Game(this: GameApi) {
         }
 
         return getFactionScoreValue(user, faction);
+    };
+
+    this.grantQuestRewardItem = function (idUser: EntityId, itemId: number, amount: number): boolean {
+        const user = getCharacterById(idUser) as GameCharacter | undefined;
+        if (!user || !Number.isInteger(itemId) || itemId <= 0 || !Number.isFinite(amount) || amount <= 0) {
+            return false;
+        }
+
+        const addedSlots = addItemToRecord(user.inv, itemId, Math.floor(amount), {
+            maxSlots: MAX_INVENTORY_SLOTS,
+            equipped: 0,
+        });
+
+        if (addedSlots === null) {
+            const dropPos = this.findDropPosition(user.map, user.pos, user.id) ?? user.pos;
+            this.placeDroppedFloorItem(user.map, dropPos, itemId, Math.floor(amount));
+            this.renderDroppedFloorItem(user.map, dropPos, itemId);
+        } else {
+            withUserClient(idUser, (client) => {
+                for (const slot of addedSlots) handleProtocol.agregarUserInvItem(idUser, slot, client);
+            });
+        }
+
+        void persistCharacterItems(user).catch((error) => funct.dumpError(error));
+        return true;
     };
 
     this.addFactionScore = function (idUser: EntityId, faction: CharacterFaction, amount: number): number {

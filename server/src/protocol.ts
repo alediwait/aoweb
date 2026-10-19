@@ -33,6 +33,7 @@ const harvesting = require("./harvesting");
 const crafting = require("./crafting");
 const smelting = require("./smelting");
 const challengeManager = require("./challengeManager");
+const questIntegration = require("./integration/questIntegration");
 const LOGOUT_CANCELLED_MESSAGE = "[Servidor] La salida se canceló porque te moviste.";
 const MAX_PENDING_MOVE_QUEUE_LENGTH = 8;
 const REVIVE_CAST_MS = 10000;
@@ -2088,6 +2089,8 @@ function processUserMovement(ws: RuntimeClient, heading: number, moveId: number,
     game.syncPartyStateForMember(ws.id);
     game.syncClanStateForMember(ws.id);
     updateUserAreaAfterMovement(ws, user, heading);
+    questIntegration.emitLocationReachedEvent(ws.id!, user.map, { x: user.pos.x, y: user.pos.y });
+    questIntegration.syncQuestJournalProximity(ws.id!);
     syncPendingReviveCastVisibilityForUser(ws.id!);
     schedulePendingMovement(ws.id!);
 }
@@ -2427,6 +2430,16 @@ function eventClick(ws: RuntimeClient) {
             const selectedId = selectedTarget.id;
             const selectedNpc = selectedTarget.isNpc ? (pjSelected as RuntimeNpc) : undefined;
             const selectedCharacter = !selectedTarget.isNpc ? (pjSelected as RuntimeCharacter) : undefined;
+
+            if (selectedNpc && !isOriginalNpcInteractionOutOfRange(user, selectedNpc, 6)) {
+                questIntegration.emitNpcInteractedEvent(
+                    clientId,
+                    selectedId,
+                    Number(selectedNpc.npcType ?? 0),
+                    Number(selectedNpc.templateNpcIndex ?? 0),
+                    selectedNpc.nameCharacter,
+                );
+            }
 
             if (selectedCharacter && isInvisibleAdmin(selectedCharacter) && selectedCharacter.id !== clientId) {
                 return;
@@ -3498,6 +3511,11 @@ function attackMele(ws: RuntimeClient) {
                     dmg = game.userDmgUser(ws.id, resolvedTarget.id);
                 }
 
+                if (!resolvedTarget.isNpc && typeof dmg === "number" && dmg > 0) {
+                    questIntegration.emitDamageDealtEvent(clientId, "player", resolvedTarget.id, dmg);
+                    questIntegration.emitDamageTakenEvent(resolvedTarget.id, "player", clientId, dmg);
+                }
+
                 if (dmg) {
                     game.loopArea(ws, function (target: AreaTarget) {
                         if (!target.isNpc) {
@@ -3708,6 +3726,11 @@ function attackRange(ws: RuntimeClient) {
                         dmg = game.userDmgNpc(ws.id, resolvedTarget.id);
                     } else {
                         dmg = game.userDmgUser(ws.id, resolvedTarget.id);
+                    }
+
+                    if (!resolvedTarget.isNpc && typeof dmg === "number" && dmg > 0) {
+                        questIntegration.emitDamageDealtEvent(clientId, "player", resolvedTarget.id, dmg);
+                        questIntegration.emitDamageTakenEvent(resolvedTarget.id, "player", clientId, dmg);
                     }
 
                     if (dmg) {
@@ -4039,6 +4062,14 @@ function attackSpell(ws: RuntimeClient) {
             }
 
             if (dmg !== 0) {
+                questIntegration.emitSpellCastEvent(clientId, idSpell);
+                if (typeof dmg === "number" && dmg > 0) {
+                    questIntegration.emitDamageDealtEvent(clientId, spellTarget.isNpc ? "npc" : "player", spellTarget.id, dmg);
+                    if (!spellTarget.isNpc) {
+                        questIntegration.emitDamageTakenEvent(spellTarget.id, "player", clientId, dmg);
+                    }
+                }
+
                 const flushGroupClients = collectCombatFlushGroupClients(ws, {
                     includeTargetArea: {
                         mapId: user.map,

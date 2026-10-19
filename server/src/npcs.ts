@@ -27,6 +27,8 @@ const socket = require("./socket") as SocketApi;
 const funct = require("./functions");
 const game = require("./game") as GameApi;
 const handleProtocol = require("./handleProtocol") as HandleProtocolApi;
+const npcAI = require("./npcAI/npcAI");
+const questIntegration = require("./integration/questIntegration");
 
 const AREA_RANGE_X = vars.areaVisionRangeX as number;
 const AREA_RANGE_Y = vars.areaVisionRangeY as number;
@@ -534,7 +536,29 @@ function tryNpcCastSpell(
     target: PlayerCharacter,
     updateHeading: (npc: NpcCharacter, target: NpcFollowTarget) => void,
 ) {
-    const spellSlot = chooseNpcSpell(npc, target);
+    // Use strategy-based spell selection if available
+    const state = npcAI.getNpcAIState(npc.id);
+    const behavior = state?.behavior;
+    const strategy = behavior ? npcAI.npcAIBehaviors[behavior] : null;
+    let spellId: number | undefined;
+
+    if (strategy && typeof strategy.selectSpell === "function") {
+        spellId = strategy.selectSpell(npc, state, target);
+    }
+
+    // Fallback to original chooseNpcSpell for NPCs without strategy or if strategy returns nothing
+    let spellSlot: NpcSpellSlot | undefined;
+    if (spellId) {
+        // Find the spell slot for this spell ID
+        spellSlot = (npc.spells ?? []).find((s) => Number(s.idSpell) === spellId);
+        // For guards, spells might be in guardSpellBook, not in npc.spells
+        if (!spellSlot && behavior === "guard") {
+            // Create a temporary spell slot for guard spells
+            spellSlot = { idSpell: spellId, cooldownSeconds: 0, lastUsedAt: 0 } as NpcSpellSlot;
+        }
+    } else {
+        spellSlot = chooseNpcSpell(npc, target);
+    }
 
     if (!spellSlot) {
         return false;
@@ -2018,6 +2042,12 @@ function Npcs(this: NpcsApi) {
                     Number.parseInt(String(funct.randomIntFromInterval(attacker.minHit, attacker.maxHit)), 10) -
                     target.def;
 
+                questIntegration.emitDamageDealtEvent(owner?.id ?? 0, "npc", target.id, dmg);
+
+                if (dmg < 1) {
+                    dmg = 1;
+                }
+
                 if (dmg < 1) {
                     dmg = 1;
                 }
@@ -2207,7 +2237,8 @@ function Npcs(this: NpcsApi) {
                     npc.movement !== 3 ||
                     (!vars.areaNpc[idNpc]?.length &&
                         !getHostileNpcCurrentSummonTarget(npc) &&
-                        !getRecentSummonAggressorTarget(npc))
+                        !getRecentSummonAggressorTarget(npc) &&
+                        !["npc", "player"].includes(npcAI.getNpcAIState(idNpc)?.currentTargetKind))
                 ) {
                     continue;
                 }
@@ -2242,6 +2273,18 @@ function Npcs(this: NpcsApi) {
             if (isSummonedNpc(npc)) {
                 despawnSummon(npc);
                 return;
+            }
+
+            if (npc.lastAggressorId) {
+                questIntegration.emitNpcKilledEvent(
+                    npc.lastAggressorId,
+                    idNpc,
+                    Number(npc.npcType ?? 0),
+                    npc.map,
+                    npc.pos,
+                    Number(npc.templateNpcIndex ?? 0),
+                    npc.nameCharacter,
+                );
             }
 
             clearDeadNpcFromSummonTargets(idNpc);
@@ -2361,8 +2404,37 @@ function Npcs(this: NpcsApi) {
 
             const previousTargetId = npc.currentTargetId;
             const summonTarget = getRecentSummonAggressorTarget(npc) ?? getHostileNpcCurrentSummonTarget(npc);
-            const userTarget = summonTarget ? undefined : selectNpcTarget(npc, targetPressure);
-            const target = (summonTarget ?? userTarget) as NpcFollowTarget | undefined;
+            const aiState = npcAI.getNpcAIState(idNpc);
+            const aiTargetId = aiState?.currentTargetKind === "npc" ? aiState.currentTargetId : null;
+            const aiNpcTarget = aiTargetId ? (vars.npcs[aiTargetId] as NpcCharacter | undefined) : undefined;
+            const hostileNpcTarget =
+                aiNpcTarget &&
+                aiNpcTarget.hp > 0 &&
+                aiNpcTarget.map === npc.map &&
+                (aiNpcTarget.npcType === vars.npcType.comun || aiNpcTarget.npcType === vars.npcType.dragon)
+                    ? aiNpcTarget
+                    : undefined;
+            const mayTargetPlayer =
+                aiState?.behavior === "aggressive" ||
+                ((aiState?.behavior === "guard" || aiState?.behavior === "defensive") &&
+                    aiState.currentTargetKind === "player");
+            const aiPlayerTarget =
+                aiState?.currentTargetKind === "player" && aiState.currentTargetId
+                    ? getUser(aiState.currentTargetId)
+                    : undefined;
+            const validAiPlayerTarget =
+                aiPlayerTarget &&
+                !aiPlayerTarget.cerrado &&
+                aiPlayerTarget.hp > 0 &&
+                aiPlayerTarget.map === npc.map &&
+                !isInvisibleToNpc(aiPlayerTarget)
+                    ? aiPlayerTarget
+                    : undefined;
+            const userTarget =
+                summonTarget || hostileNpcTarget
+                    ? undefined
+                    : validAiPlayerTarget ?? (mayTargetPlayer ? selectNpcTarget(npc, targetPressure) : undefined);
+            const target = (summonTarget ?? hostileNpcTarget ?? userTarget) as NpcFollowTarget | undefined;
 
             if (!target) {
                 clearNpcTarget(npc);
@@ -2444,7 +2516,12 @@ function Npcs(this: NpcsApi) {
                 return;
             }
 
+            if (!npcAI.shouldNpcFightBack(idNpc)) {
+                return;
+            }
+
             const user = userTarget as PlayerCharacter;
+
             const idUser = user.id;
 
             if (Date.now() - npc.cooldownAtaque < vars.timing.statusDurations.npcAttackMs) {

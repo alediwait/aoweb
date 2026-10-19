@@ -1,4 +1,5 @@
 import { installUserDmgNpcHook } from "./hookUserDmgNpc";
+import { installNpcAttackUserQuestHook } from "./hookNpcAttackUser";
 
 let questHooksInstalled = false;
 
@@ -15,6 +16,15 @@ export function installQuestHooks(): void {
         }
     } catch {
         // Game module not yet available — hooks will be installed on next call.
+    }
+
+    try {
+        const npcs = require("../npcs");
+        if (npcs && typeof npcs.npcAttackUser === "function") {
+            npcs.npcAttackUser = installNpcAttackUserQuestHook(npcs.npcAttackUser);
+        }
+    } catch {
+        // NPC module not yet available — hooks will be installed on next call.
     }
 }
 

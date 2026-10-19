@@ -146,6 +146,68 @@ class LoadNpcs {
         vars.areaNpc[tmpNPC.id] = [];
 
         vars.mapData[mapNum][tmpNPC.pos.y][tmpNPC.pos.x].id = tmpNPC.id;
+
+        // Initialize NPC AI behavior based on npcType
+        this.initializeNpcAI(tmpNPC);
+    }
+
+    initializeNpcAI(npc: any) {
+        const npcAI = require("./npcAI/npcAI");
+        const guardAI = require("./npcAI/guardAI");
+
+        // Determine behavior based on npcType
+        // 0: comun (monsters), 6: dragon - aggressive
+        // 2: guardia, 8: guardiaCaos - guard
+        // Others: passive (merchants, NPCs)
+        // Defensive behavior for neutral NPCs that should fight back vs monsters
+        let behavior: "passive" | "defensive" | "aggressive" | "guard" = "passive";
+
+        switch (npc.npcType) {
+            case 0: // comun - monsters
+            case 6: // dragon
+                behavior = "aggressive";
+                break;
+            case 2: // guardia
+            case 8: // guardiaCaos
+                behavior = "guard";
+                break;
+            // Add explicit case for NPCs that should be defensive (if any specific types)
+            default:
+                // Check if this is a neutral NPC that should defend itself
+                // For now, default to passive
+                behavior = "passive";
+                break;
+        }
+
+        // Allow defensive behavior for NPCs that should fight back vs monsters
+        // This can be extended based on NPC data
+        if (behavior === "passive" && npc.poderAtaque > 0 && npc.minHit > 0) {
+            // NPCs with attack power but not marked as aggressive could be defensive
+            // behavior = "defensive";
+        }
+
+        const homePosition = { x: npc.pos.x, y: npc.pos.y };
+
+        // Use type assertion to avoid TypeScript narrowing issues
+        const b = behavior as "passive" | "defensive" | "aggressive" | "guard";
+
+        if (b === "guard") {
+            guardAI.initializeGuardAI(npc.id, homePosition);
+        } else {
+            const state = npcAI.createDefaultNpcAIState();
+            state.behavior = b;
+            state.homePosition = homePosition;
+            state.leashRadius = 15;
+            state.aggroMemoryMs = 15000;
+            if (b === "defensive") {
+                state.aggroOnAttack = true;
+            }
+            if (b === "aggressive") {
+                state.aggroMemoryMs = 30000;
+                state.leashRadius = 20;
+            }
+            npcAI.setNpcAIState(npc.id, state);
+        }
     }
 
     createJsonNpcsInMap() {

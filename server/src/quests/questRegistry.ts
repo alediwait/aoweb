@@ -196,6 +196,7 @@ registerQuest({
         {
             id: "reach_citadel",
             type: "reach_location",
+            targetPosition: { map: 1, x: 50, y: 50, radius: 2 },
             requiredAmount: 1,
             currentAmount: 0,
             description: "Llega a la Ciudadela (Mapa 1, Posición 50,50)",

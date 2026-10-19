@@ -11,9 +11,9 @@ export function installProcessPendingMovementsHook(originalFn: ProcessPendingMov
     }
     installed = true;
 
-    return function hookedProcessPendingMovements(): void {
+    return function hookedProcessPendingMovements(this: ThisParameterType<ProcessPendingMovementsFn>): void {
         activateGuardsForCombat();
-        originalFn();
+        originalFn.call(this);
     };
 }
 

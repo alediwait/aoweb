@@ -10,6 +10,10 @@ export type QuestObjectiveType =
     | "kill_player"
     | "craft_item"
     | "use_item"
+    | "spell_cast"
+    | "deal_damage"
+    | "take_damage"
+    | "reach_level"
     | "escort_npc";
 
 export type QuestRewardType = "exp" | "gold" | "item" | "faction_score" | "spell";
@@ -19,6 +23,7 @@ export type QuestObjective = {
     type: QuestObjectiveType;
     targetId?: EntityId | number;
     targetName?: string;
+    targetPosition?: { map: number; x: number; y: number; radius?: number };
     requiredAmount: number;
     currentAmount: number;
     description: string;
@@ -29,6 +34,7 @@ export type QuestReward = {
     type: QuestRewardType;
     amount: number;
     itemId?: number;
+    spellId?: number;
     faction?: "armada" | "caos";
 };
 
@@ -58,9 +64,9 @@ export type PlayerQuestState = {
 };
 
 export type QuestEvent =
-    | { type: "npc_killed"; npcId: EntityId; npcType: number; map: number; pos: { x: number; y: number } }
+    | { type: "npc_killed"; npcId: EntityId; npcType: number; npcTemplateId?: number; npcName?: string; map: number; pos: { x: number; y: number } }
     | { type: "item_collected"; itemId: number; amount: number }
-    | { type: "npc_interacted"; npcId: EntityId; npcType: number }
+    | { type: "npc_interacted"; npcId: EntityId; npcType: number; npcTemplateId?: number; npcName?: string }
     | { type: "location_reached"; map: number; pos: { x: number; y: number } }
     | { type: "player_killed"; victimId: EntityId; victimFaction: string }
     | { type: "item_crafted"; itemId: number; amount: number }

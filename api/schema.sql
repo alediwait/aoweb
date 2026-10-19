@@ -556,5 +556,23 @@ CREATE INDEX IF NOT EXISTS idx_game_crafting_recipes_item_id ON game_crafting_re
 CREATE INDEX IF NOT EXISTS idx_game_smelting_recipes_updated_at ON game_smelting_recipes(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_game_smelting_recipes_mineral_item_id ON game_smelting_recipes(mineral_item_id);
 CREATE INDEX IF NOT EXISTS idx_game_balance_updated_at ON game_balance(updated_at DESC);
+...
 CREATE INDEX IF NOT EXISTS idx_game_data_revisions_kind_id ON game_data_revisions(kind, id DESC);
 CREATE INDEX IF NOT EXISTS idx_challenge_history_finished_at ON challenge_history(finished_at DESC);
+
+CREATE TABLE IF NOT EXISTS character_quests (
+    character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    quest_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('available', 'active', 'completed', 'turned_in', 'failed')),
+    objectives JSONB NOT NULL DEFAULT '[]'::jsonb,
+    started_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    turned_in_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (character_id, quest_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_character_quests_character_id ON character_quests(character_id);
+CREATE INDEX IF NOT EXISTS idx_character_quests_quest_id ON character_quests(quest_id);
+
